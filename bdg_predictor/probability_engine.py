@@ -4,7 +4,8 @@ Calculates weighted probabilities and confidence scores for predictions.
 """
 
 import logging
-from typing import Any, List, Dict, Tuple, Optional
+from typing import Any, List, Dict, Tuple, Optional, TypedDict
+from typing_extensions import NotRequired
 from pattern_detector import SizeMapper, ColorMapper, PatternDetector
 from config import Config
 
@@ -14,6 +15,26 @@ logger = logging.getLogger(__name__)
 class ProbabilityEngine:
     """Calculates probabilities and scores for number predictions."""
     
+    class SizePatterns(TypedDict):
+        pattern_type: str
+        pattern_strength: float
+        alternating: Dict[str, Any]
+        repeating: Dict[str, Any]
+        current_streak: Dict[str, Any]
+
+    class ColorPatterns(TypedDict):
+        pattern_type: str
+        pattern_strength: float
+        nAnB_pattern: Dict[str, Any]
+        color_cycle: Dict[str, Any]
+        dominant_color: Dict[str, Any]
+
+    PatternsDict = TypedDict("PatternsDict", {
+        "size_patterns": SizePatterns,
+        "color_patterns": ColorPatterns,
+        "cycles": list[Dict[str, Any]]
+    })
+
     def __init__(self, draws: List[int], patterns: Dict[str, Any], weight_profile: Optional[Dict[str, float]] = None):
         """
         Initialize probability engine.
@@ -24,7 +45,7 @@ class ProbabilityEngine:
         """
         # Draws are provided newest-first by the fetcher/main engine.
         self.draws = draws
-        self.patterns: Dict[str, Any] = patterns
+        self.patterns: PatternsDict = patterns
         self.detector = PatternDetector(draws)
         self.weights = self._resolve_weights(weight_profile)
 
@@ -197,10 +218,12 @@ class ProbabilityEngine:
         # Size trend
         size = SizeMapper.get_size(number)
         
-        if self.patterns["size_patterns"]["pattern_type"] == "Streak":
+        pattern_type = str(self.patterns["size_patterns"].get("pattern_type", ""))
+        if pattern_type == "Streak":
             # Streak reversal: predict opposite
-            streak_type = self.patterns["size_patterns"]["current_streak"]["type"]
-            if size != streak_type and self.patterns["size_patterns"]["current_streak"]["length"] >= 3:
+            streak_type = str(self.patterns["size_patterns"]["current_streak"].get("type", ""))
+            streak_length = self.patterns["size_patterns"]["current_streak"].get("length", 0)
+            if size != streak_type and streak_length >= 3:
                 weight += 0.35
         
         # Apply size balance rule
