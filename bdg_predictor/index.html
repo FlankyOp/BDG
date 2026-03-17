@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BDG Game Prediction Engine</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./assets/css/styles.css" />
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- HEADER -->
+  <header class="header">
+    <div class="header-brand">
+      <div class="brand-icon">🎯</div>
+      <div>
+        <div class="brand-title">BDG Prediction Engine</div>
+        <div class="brand-sub">Live Data · Auto-Predict · Pattern Analysis</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="ai-status" id="ai-status">
+        <span class="pulse-dot"></span>
+        <span class="status-text" id="ai-sync-text">FLANKY-V12: SYNCED</span>
+      </div>
+      <div class="live-badge offline" id="live-badge">
+        <span class="live-dot"></span>
+        <span id="live-label">Connecting…</span>
+      </div>
+      <button class="btn btn-primary" id="predict-btn" onclick="manualPredict()">
+        <span class="spinner"></span>
+        <span class="btn-text">⚡ Predict Now</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- GAME TYPE TABS + COUNTDOWN -->
+  <div class="game-tabs-section">
+    <div class="game-tabs-row">
+      <button class="game-tab active" data-code="WinGo_1M" onclick="selectGame('WinGo_1M')">
+        <span class="game-tab-name">WinGo 1 Min</span>
+        <span class="game-tab-interval">Every 1 minute</span>
+      </button>
+      <button class="game-tab" data-code="WinGo_3M" onclick="selectGame('WinGo_3M')">
+        <span class="game-tab-name">WinGo 3 Min</span>
+        <span class="game-tab-interval">Every 3 minutes</span>
+      </button>
+      <button class="game-tab" data-code="WinGo_5M" onclick="selectGame('WinGo_5M')">
+        <span class="game-tab-name">WinGo 5 Min</span>
+        <span class="game-tab-interval">Every 5 minutes</span>
+      </button>
+    </div>
+
+    <div class="game-info-row">
+      <div class="info-block">
+        <span class="label">Next Period</span>
+        <span class="info-val mono" id="next-period">—</span>
+      </div>
+      <div class="info-block">
+        <span class="label">Time Remaining</span>
+        <div class="countdown-display" id="countdown">
+          <span class="cd-digit" id="cd-m1">0</span>
+          <span class="cd-digit" id="cd-m0">0</span>
+          <span class="cd-sep">:</span>
+          <span class="cd-digit" id="cd-s1">0</span>
+          <span class="cd-digit" id="cd-s0">0</span>
+        </div>
+      </div>
+      <div class="info-block">
+        <span class="label">Last Result</span>
+        <span class="info-val mono" id="last-result">—</span>
+      </div>
+      <div class="info-block push-right">
+        <div class="status-bar" id="fetch-status">⏳ Initializing…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- RECENT RESULTS -->
+  <div class="recent-section">
+    <div class="recent-header">
+      <span class="label">History — <span id="history-count" class="history-count">loading…</span></span>
+      <span class="label muted-label" id="data-source-label">—</span>
+    </div>
+    <div class="recent-chips" id="recent-chips">
+      <!-- chips rendered here -->
+    </div>
+  </div>
+
+  <!-- MANUAL INPUT (collapsible) -->
+  <div class="input-section">
+    <div class="input-toggle-row" onclick="toggleManualInput()">
+      <span class="label manual-toggle-label">🔧 Manual Input Override (optional)</span>
+      <span class="input-toggle-icon" id="input-toggle-icon">▾</span>
+    </div>
+    <div class="input-body" id="input-body">
+      <div class="input-row">
+        <div class="input-group">
+          <label for="draws-input">Custom draws (0-9, comma/space separated, min 10):</label>
+          <input type="text" id="draws-input" class="draws-input mono"
+            placeholder="e.g. 3 7 2 8 1 5 4 9 6 0 2 7 3 8 5 1 4 9 6 2"
+            autocomplete="off" spellcheck="false" />
+        </div>
+        <div class="actions-row">
+          <button class="btn btn-secondary btn-sm" onclick="applyManualDraws()">Apply</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearManual()">Clear</button>
+        </div>
+      </div>
+      <div class="error-msg" id="error-msg">⚠ Enter 10–20 numbers between 0 and 9</div>
+    </div>
+  </div>
+
+  <!-- EMPTY STATE -->
+  <div class="empty-state" id="empty-state">
+    <div class="empty-state-icon">🔮</div>
+    <div class="empty-state-text">Fetching live data…</div>
+  </div>
+
+  <!-- RESULTS -->
+  <div id="results-section">
+    <div class="cards-grid" id="cards-grid"></div>
+    <div class="bento-grid">
+      <div>
+        <div class="panel">
+          <div class="panel-title"><span class="panel-title-dot"></span>Trend Analysis</div>
+          <div id="trend-panel"></div>
+        </div>
+        <div class="panel panel-spaced">
+          <div class="panel-title"><span class="panel-title-dot"></span>Frequency Distribution</div>
+          <div class="freq-chart" id="freq-chart"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-title"><span class="panel-title-dot"></span>Probability Ranking</div>
+        <div id="prob-panel"></div>
+      </div>
+    </div>
+    <div class="summary-banner" id="summary-banner"></div>
+    <div class="gen-timestamp" id="gen-timestamp"></div>
+  </div>
+
+</div><!-- /app-shell -->
+<script src="./assets/js/app.js"></script>
+</body>
+</html>

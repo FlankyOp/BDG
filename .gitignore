@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pyc
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.so
+.venv/
+venv/
+env/
+.env
+
+# Logs & runtime data
+logs/
+*.log
+*.json
+adaptive_profile*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Kombai editor
+.kombai/
+
+# VS Code
+.vscode/
+
+# Node
+node_modules/
