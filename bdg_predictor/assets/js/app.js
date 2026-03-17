@@ -10,6 +10,30 @@ const GAME_CONFIGS = {
 };
 
 /* ============================================================
+   FIREBASE CONFIGURATION
+============================================================ */
+// IMPORTANT: REPLACE WITH YOUR ACTUAL FIREBASE CONFIG
+const firebaseConfig = {
+  apiKey: "AIzaSyAJBUpptDCAxMOxbX6WjKhiedKmO_zdxH4",
+  authDomain: "flankygod-bdg.firebaseapp.com",
+  databaseURL: "https://flankygod-bdg-default-rtdb.firebaseio.com",
+  projectId: "flankygod-bdg",
+  storageBucket: "flankygod-bdg.firebasestorage.app",
+  messagingSenderId: "338443538676",
+  appId: "1:338443538676:web:bb3463404c8975a22bcea1",
+  measurementId: "G-TKTDT0VQTX"
+};
+
+// Initialize Firebase
+if (typeof firebase !== 'undefined') {
+  firebase.initializeApp(firebaseConfig);
+  if (typeof firebase.analytics === 'function') {
+    firebase.analytics();
+  }
+}
+const db = typeof firebase !== 'undefined' ? firebase.database() : null;
+
+/* ============================================================
    STATE
 ============================================================ */
 let _state = {
@@ -23,6 +47,11 @@ let _state = {
   endTime: null,
   predictionResult: null,
   lastPeriodSeen: null,
+  fallbackMode: false,
+  fallbackReason: '',
+  apiInFlight: false,
+  lastHistoryKey: '',
+  firebaseFallbackTimer: null,
 };
 
 /* ============================================================
@@ -43,558 +72,309 @@ function apiColorToJs(apiColor) {
   return 'Red';
 }
 
-/* ============================================================
-   SIZE / COLOR MAPPERS
-============================================================ */
-const SizeMapper = {
-  getSize: (n) => n < 5 ? 'Small' : 'Big',
-  numbersToSizes: (arr) => arr.map((n) => SizeMapper.getSize(n)),
-};
+function numberToColor(n) {
+  const map = {
+    0:'Red',1:'Green',2:'Red',3:'Green',4:'Red',
+    5:'Violet',6:'Red',7:'Green',8:'Red',9:'Green'
+  };
+  return map[n] || 'Red';
+}
 
-const ColorMapper = {
-  MAP: {0:'Red',1:'Green',2:'Red',3:'Green',4:'Red',5:'Violet',6:'Red',7:'Green',8:'Red',9:'Green'},
-  getColor: (n) => ColorMapper.MAP[n] || 'Unknown',
-  numbersToColors: (arr) => arr.map((n) => ColorMapper.getColor(n)),
-};
+function numberToSize(n) {
+  return Number(n) >= 5 ? 'Big' : 'Small';
+}
 
-/* ============================================================
-   PATTERN DETECTOR
-============================================================ */
-class PatternDetector {
-  constructor(draws) {
-    this.draws = draws;
-    this.sizes = SizeMapper.numbersToSizes(draws);
-    this.colors = ColorMapper.numbersToColors(draws);
+function toPct(score) {
+  return `${(score * 100).toFixed(1)}%`;
+}
+
+function issuePlusOne(issue) {
+  try {
+    if (!issue) return '-';
+    return (BigInt(String(issue)) + 1n).toString();
+  } catch {
+    return '-';
   }
+}
 
-  detectSizePattern() {
-    const alt = this._detectAlternating();
-    const rep = this._detectRepeating();
-    const streak = this._detectCurrentStreak();
-    let pt = null;
-    let ps = 0;
+function normalizeApiHistory(payload) {
+  const rows = payload?.data?.list;
+  if (!Array.isArray(rows)) return [];
 
-    if (alt.found) {
-      pt = 'Alternating';
-      ps = alt.strength;
-    } else if (rep.found) {
-      pt = 'Repeating';
-      ps = rep.strength;
-    } else if (streak.length >= 3) {
-      pt = 'Streak';
-      ps = Math.min(0.9, streak.length / 5);
-    }
-
-    return {
-      alternating: alt,
-      repeating: rep,
-      current_streak: streak,
-      streak_history: this._detectStreakHistory(),
-      pattern_type: pt,
-      pattern_strength: ps,
-    };
-  }
-
-  _detectAlternating() {
-    if (this.sizes.length < 4) return { found: false, strength: 0 };
-    const r = this.sizes.slice(-15);
-    const altCount = r.filter((v, i) => i === 0 || v !== r[i - 1]).length;
-    const ratio = (altCount - 1) / Math.max(r.length - 1, 1);
-
-    if (ratio >= 0.9) {
+  return rows
+    .map((r) => {
+      const number = Number(r?.number);
+      if (!Number.isFinite(number)) return null;
       return {
-        found: true,
-        strength: Math.min(0.9, 0.70 + ratio * 0.20),
-        next_expected: r[r.length - 1] === 'Big' ? 'Small' : 'Big',
+        issueNumber: String(r.issueNumber ?? r.period ?? ''),
+        number,
+        color: r.color || numberToColor(number),
       };
-    }
+    })
+    .filter(Boolean);
+}
 
-    return { found: false, strength: 0 };
+function buildPredictionFromHistory(history) {
+  const counts = {};
+  const scores = {};
+
+  for (let i = 0; i <= 9; i += 1) {
+    counts[i] = 0;
+    scores[i] = 0;
   }
 
-  _detectRepeating() {
-    if (this.sizes.length < 4) return { found: false, strength: 0 };
-    const r = this.sizes.slice(-10);
-    const pairs = [];
-    for (let i = 0; i < r.length - 1; i += 2) pairs.push(r.slice(i, i + 2));
+  history.forEach((h, idx) => {
+    const n = Number(h.number);
+    if (!Number.isFinite(n) || n < 0 || n > 9) return;
+    counts[n] += 1;
 
-    if (pairs.length >= 2 && pairs.every((p, i) => i === 0 || (p[0] === pairs[0][0] && p[1] === pairs[0][1]))) {
-      return { found: true, strength: 0.78 };
-    }
+    // Recency-weighted score so recent rounds influence rank more.
+    const weight = Math.max(0.2, 1 - (idx * 0.03));
+    scores[n] += weight;
+  });
 
-    return { found: false, strength: 0 };
-  }
+  const totalScore = Object.values(scores).reduce((a, b) => a + b, 0) || 1;
+  const rankings = Object.keys(scores)
+    .map((k) => {
+      const n = Number(k);
+      const score = scores[n] / totalScore;
+      return {
+        number: n,
+        score,
+        color: numberToColor(n),
+        size: numberToSize(n),
+      };
+    })
+    .sort((a, b) => b.score - a.score);
 
-  _detectCurrentStreak() {
-    if (!this.sizes.length) return { length: 0, type: null };
-    const cur = this.sizes[this.sizes.length - 1];
-    let len = 1;
+  const p1 = rankings[0];
+  const p2 = rankings[1];
+  const p3 = rankings[2];
 
-    for (let i = this.sizes.length - 2; i >= 0; i--) {
-      if (this.sizes[i] === cur) len++;
-      else break;
-    }
+  const recent = history.slice(0, 8);
+  const bigCount = recent.filter((h) => numberToSize(h.number) === 'Big').length;
+  const sizePattern = bigCount >= 6
+    ? 'Big trend active'
+    : bigCount <= 2
+      ? 'Small trend active'
+      : 'No strong pattern detected';
 
-    return {
-      length: len,
-      type: cur,
-      direction: len >= 3 ? 'will_reverse' : 'may_continue',
-    };
-  }
+  const colorRecent = recent.map((h) => numberToColor(h.number));
+  const greenCount = colorRecent.filter((c) => c === 'Green').length;
+  const redCount = colorRecent.filter((c) => c === 'Red').length;
+  const colorPattern = greenCount >= 6
+    ? 'Green dominant'
+    : redCount >= 6
+      ? 'Red dominant'
+      : 'Mixed';
 
-  _detectStreakHistory() {
-    const s = [];
-    if (!this.sizes.length) return s;
-
-    let ct = this.sizes[0];
-    let cl = 1;
-    for (let i = 1; i < this.sizes.length; i++) {
-      if (this.sizes[i] === ct) {
-        cl++;
-      } else {
-        if (cl >= 2) s.push({ type: ct, length: cl });
-        ct = this.sizes[i];
-        cl = 1;
-      }
-    }
-
-    return s;
-  }
-
-  detectColorPattern() {
-    const nAnB = this._detectNAnB();
-    const cycle = this._detectColorCycle();
-    const dom = this._getDominantColor();
-    let pt = null;
-    let ps = 0;
-
-    if (nAnB.type) {
-      pt = nAnB.type;
-      ps = nAnB.strength;
-    } else if (cycle.detected) {
-      pt = 'Color Cycle';
-      ps = cycle.strength;
-    }
-
-    return {
-      nAnB_pattern: nAnB,
-      color_cycle: cycle,
-      dominant_color: dom,
-      pattern_type: pt,
-      pattern_strength: ps,
-    };
-  }
-
-  _detectNAnB() {
-    if (this.colors.length < 4) return { type: null, strength: 0 };
-    const r = this.colors.slice(-12);
-
-    for (let n = 1; n <= 4; n++) {
-      const pl = n * 2;
-      if (r.length < pl) continue;
-
-      const s = r.slice(-pl);
-      const f = s.slice(0, n);
-      const sc = s.slice(n);
-
-      if (f.every((c) => c === f[0]) && sc.every((c) => c === sc[0]) && f[0] !== sc[0]) {
-        return {
-          type: `${n}A${n}B`,
-          strength: Math.min(0.9, 0.5 + n * 0.1),
-          next_color: r.length % (2 * n) === 0 ? sc[0] : f[0],
-        };
-      }
-    }
-
-    return { type: null, strength: 0 };
-  }
-
-  _detectColorCycle() {
-    if (this.colors.length < 4) return { detected: false, strength: 0 };
-    const r = this.colors.slice(-9);
-
-    for (const cl of [2, 3]) {
-      if (r.length < cl * 2) continue;
-      const c = r.slice(0, cl);
-      let m = 0;
-      for (let i = cl; i < r.length; i++) {
-        if (r[i] === c[(i - cl) % cl]) m++;
-      }
-      const ratio = m / (r.length - cl);
-      if (ratio >= 0.75) {
-        return {
-          detected: true,
-          cycle: c,
-          strength: Math.min(0.80, 0.60 + ratio * 0.25),
-          next_color: c[r.length % cl],
-        };
-      }
-    }
-
-    return { detected: false, strength: 0 };
-  }
-
-  _getDominantColor() {
-    const cnt = {};
-    this.colors.forEach((c) => { cnt[c] = (cnt[c] || 0) + 1; });
-    const d = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
-    if (!d) return { color: null, frequency: 0, percentage: 0, color_distribution: {} };
-
-    return {
-      color: d[0],
-      frequency: d[1],
-      percentage: (d[1] / this.colors.length) * 100,
-      color_distribution: cnt,
-    };
-  }
-
-  detectCycles() {
-    return [2, 3, 4, 6]
-      .map((l) => this._checkCycle(l))
-      .filter((c) => c.strength > 0)
-      .sort((a, b) => b.strength - a.strength);
-  }
-
-  _checkCycle(cl) {
-    if (this.draws.length < cl * 2) return { cycle_length: cl, strength: 0, pattern: null };
-    const r = this.draws.slice(-cl * 4);
-    const p = r.slice(0, cl);
-    let m = 0;
-    for (let i = cl; i < r.length; i++) if (r[i] === p[i % cl]) m++;
-    const s = safeDiv(m, r.length - cl);
-    if (s > 0.6) return { cycle_length: cl, pattern: p, strength: s, next_number: p[r.length % cl] };
-    return { cycle_length: cl, strength: 0, pattern: null };
-  }
-
-  getNumberFrequency() {
-    const f = {};
-    for (let i = 0; i < 10; i++) f[i] = 0;
-    this.draws.forEach((n) => { f[n]++; });
-    return f;
-  }
-
-  getSizeDistribution() {
-    const d = { Big: 0, Small: 0 };
-    this.sizes.forEach((s) => { d[s]++; });
-    return d;
-  }
-
-  analyzeAllPatterns() {
-    return {
-      size_patterns: this.detectSizePattern(),
-      color_patterns: this.detectColorPattern(),
-      cycles: this.detectCycles(),
-      number_frequency: this.getNumberFrequency(),
-      size_distribution: this.getSizeDistribution(),
-      recent_draws: this.draws,
-      recent_sizes: this.sizes,
-      recent_colors: this.colors,
-    };
-  }
+  return {
+    primary_prediction: {
+      number: p1.number,
+      color: p1.color,
+      size: p1.size,
+      accuracy: toPct(p1.score),
+    },
+    alternative_prediction: {
+      number: p2.number,
+      color: p2.color,
+      size: p2.size,
+      accuracy: toPct(p2.score),
+    },
+    strong_possibility: {
+      number: p3.number,
+      color: p3.color,
+      size: p3.size,
+      accuracy: toPct(p3.score),
+    },
+    trend_analysis: {
+      size_pattern: sizePattern,
+      color_pattern: colorPattern,
+      active_streak: 'Adaptive from latest rounds',
+      detected_cycle: 'No strong cycle detected',
+    },
+    all_rankings: rankings,
+    number_frequency: counts,
+    summary: {
+      best_bet: `NUMBER ${p1.number} (${p1.color}, ${p1.size})`,
+      alternative_bet: `NUMBER ${p2.number} (${p2.color}, ${p2.size})`,
+      backup_bet: `NUMBER ${p3.number} (${p3.color}, ${p3.size})`,
+      combined_strategy: `Play ${p1.number} first, hedge with ${p2.number} if needed.`,
+    },
+    probability_explanation: `Generated from ${history.length} latest live rounds (fallback mode).`,
+    timestamp: new Date().toISOString(),
+  };
 }
 
 /* ============================================================
-   PROBABILITY ENGINE
+   FIREBASE LISTENERS
 ============================================================ */
-class ProbabilityEngine {
-  constructor(draws, patterns) {
-    this.draws = draws;
-    this.patterns = patterns;
-    this.detector = new PatternDetector(draws);
-  }
+let gameStateRef = null;
+let predictionRef = null;
 
-  calcTrendWeight(n) {
-    let w = 0;
-    const size = SizeMapper.getSize(n);
-    const sp = this.patterns.size_patterns;
-    if (sp.pattern_type === 'Streak' && sp.current_streak.length >= 3 && size !== sp.current_streak.type) w += 0.35;
-    const r5 = this.detector.sizes.slice(-5);
-    if (r5.filter((x) => x === 'Big').length >= 3 && size === 'Small') w += 0.15;
-    if (r5.filter((x) => x === 'Small').length >= 3 && size === 'Big') w += 0.15;
-    if (this.detector.getNumberFrequency()[n] === 0) w += 0.10;
-    return clamp(w, 0, 1);
+function stopApiPolling() {
+  if (_state.pollTimer) {
+    clearInterval(_state.pollTimer);
+    _state.pollTimer = null;
   }
-
-  calcFrequencyWeight(n) {
-    const f = this.detector.getNumberFrequency();
-    const mx = Math.max(...Object.values(f)) || 1;
-    return 1 - (f[n] / mx);
-  }
-
-  calcCycleWeight(n) {
-    const c = this.patterns.cycles;
-    if (!c.length) return 0;
-    const b = c[0];
-    if (b.strength < 0.5) return 0;
-    if (b.next_number === n) return b.strength * 0.9;
-    if (b.pattern && b.pattern.includes(n)) return b.strength * 0.6;
-    return 0;
-  }
-
-  calcStreakWeight(n) {
-    const s = this.patterns.size_patterns.current_streak;
-    if (s.length < 2) return 0;
-    if (s.length >= 3 && SizeMapper.getSize(n) !== s.type) return clamp(0.6 + s.length * 0.05, 0, 1);
-    return 0;
-  }
-
-  calcNoiseWeight(n) {
-    if (!this.draws.slice(-3).includes(n)) return 0.15;
-    const rev = [...this.draws].reverse();
-    const li = rev.indexOf(n);
-    return ((this.draws.length - 1 - li) / this.draws.length) * 0.10;
-  }
-
-  calcColorWeight(n) {
-    const col = ColorMapper.getColor(n);
-    const cp = this.patterns.color_patterns;
-    if (cp.pattern_type && cp.pattern_type.includes('A') && cp.nAnB_pattern.next_color === col) return 0.18;
-    const d = cp.dominant_color;
-    if (d.color && col !== d.color) return (1 - d.percentage / 100) * 0.15;
-    return 0;
-  }
-
-  calcConfidenceScore(n) {
-    const t = this.calcTrendWeight(n);
-    const f = this.calcFrequencyWeight(n);
-    const c = this.calcCycleWeight(n);
-    const s = this.calcStreakWeight(n);
-    const ns = this.calcNoiseWeight(n);
-    const col = this.calcColorWeight(n);
-    let sc = t * 0.30 + f * 0.25 + c * 0.20 + s * 0.15 + ns * 0.10;
-    if (col > 0.1) sc = sc * 0.95 + col * 0.05;
-    return clamp(sc, 0, 1);
-  }
-
-  rankAllNumbers() {
-    return Array.from({ length: 10 }, (_, i) => ({
-      number: i,
-      score: this.calcConfidenceScore(i),
-      size: SizeMapper.getSize(i),
-      color: ColorMapper.getColor(i),
-    })).sort((a, b) => b.score - a.score);
-  }
-
-  getTopPredictions(n = 3) {
-    return this.rankAllNumbers().slice(0, n).map((r, i) => ({
-      rank: i + 1,
-      number: r.number,
-      confidence: r.score,
-      size: r.size,
-      color: r.color,
-      accuracy_percentage: r.score * 100,
-    }));
-  }
-
-  explainPrediction(n) {
-    return {
-      trend_weight: this.calcTrendWeight(n),
-      frequency_weight: this.calcFrequencyWeight(n),
-      cycle_weight: this.calcCycleWeight(n),
-      streak_weight: this.calcStreakWeight(n),
-      noise_weight: this.calcNoiseWeight(n),
-      total_score: this.calcConfidenceScore(n),
-    };
-  }
+  _state.apiInFlight = false;
 }
 
-/* ============================================================
-   PREDICTOR
-============================================================ */
-class Predictor {
-  constructor(draws, period = null) {
-    this.draws = draws;
-    this.period = period || String(Date.now());
-    this.timestamp = new Date();
-    this.patternDetector = new PatternDetector(draws);
-    this.patterns = this.patternDetector.analyzeAllPatterns();
-    this.probabilityEngine = new ProbabilityEngine(draws, this.patterns);
-  }
-
-  generatePrediction() {
-    const preds = this.probabilityEngine.getTopPredictions(3);
-    const np = this._calcNextPeriod();
-
-    return {
-      timestamp: this.timestamp.toISOString(),
-      current_period: this.period,
-      next_period: np,
-      primary_prediction: {
-        number: preds[0].number,
-        size: preds[0].size,
-        color: preds[0].color,
-        accuracy: `${preds[0].accuracy_percentage.toFixed(1)}%`,
-      },
-      alternative_prediction: preds[1] ? {
-        number: preds[1].number,
-        size: preds[1].size,
-        color: preds[1].color,
-        accuracy: `${preds[1].accuracy_percentage.toFixed(1)}%`,
-      } : null,
-      strong_possibility: preds[2] ? {
-        number: preds[2].number,
-        size: preds[2].size,
-        color: preds[2].color,
-        accuracy: `${preds[2].accuracy_percentage.toFixed(1)}%`,
-      } : null,
-      trend_analysis: this._genTrend(),
-      probability_explanation: this._genExpl(preds[0].number),
-      summary: this._genSummary(preds),
-      all_rankings: this.probabilityEngine.rankAllNumbers(),
-      number_frequency: this.patterns.number_frequency,
-    };
-  }
-
-  _calcNextPeriod() {
-    try {
-      return String(BigInt(this.period) + 1n);
-    } catch {
-      return this.period;
-    }
-  }
-
-  _genTrend() {
-    const sp = this.patterns.size_patterns;
-    const cp = this.patterns.color_patterns;
-    const cy = this.patterns.cycles;
-    return {
-      size_pattern: this._fmtSP(sp),
-      color_pattern: this._fmtCP(cp),
-      active_streak: this._fmtStreak(sp),
-      detected_cycle: this._fmtCycle(cy),
-    };
-  }
-
-  _fmtSP(sp) {
-    if (!sp.pattern_type) return 'No strong pattern';
-    const pct = `${(sp.pattern_strength * 100).toFixed(0)}%`;
-    if (sp.pattern_type === 'Streak') return `Streak - ${sp.current_streak.type} x${sp.current_streak.length} (${pct})`;
-    return `${sp.pattern_type} Pattern (${pct})`;
-  }
-
-  _fmtCP(cp) {
-    if (cp.pattern_type) return `${cp.pattern_type} (${(cp.pattern_strength * 100).toFixed(0)}%)`;
-    const d = cp.dominant_color;
-    if (d.color) return `Dominant: ${d.color} (${d.percentage.toFixed(1)}%)`;
-    return 'No pattern';
-  }
-
-  _fmtStreak(sp) {
-    const s = sp.current_streak;
-    if (s.length >= 2) return `${s.type} x${s.length} - ${s.length >= 3 ? 'May reverse' : 'May continue'}`;
-    return 'No active streak';
-  }
-
-  _fmtCycle(c) {
-    if (c.length && c[0].strength > 0.5) return `${c[0].cycle_length}-round cycle (${(c[0].strength * 100).toFixed(0)}%)`;
-    return 'No cycle detected';
-  }
-
-  _genExpl(n) {
-    const e = this.probabilityEngine.explainPrediction(n);
-    const f = [];
-    if (e.trend_weight > 0.20) f.push(`Trend (${(e.trend_weight * 100).toFixed(0)}%)`);
-    if (e.cycle_weight > 0.20) f.push(`Cycle (${(e.cycle_weight * 100).toFixed(0)}%)`);
-    if (e.streak_weight > 0.20) f.push(`Streak reversal (${(e.streak_weight * 100).toFixed(0)}%)`);
-    if (e.frequency_weight > 0.40) f.push(`Frequency (${(e.frequency_weight * 100).toFixed(0)}%)`);
-    if (!f.length) f.push(`Comprehensive analysis (${(e.total_score * 100).toFixed(1)}%)`);
-    return `Based on: ${f.join(', ')}`;
-  }
-
-  _genSummary(p) {
-    const fmt = (x) => `NUMBER ${x.number} (${x.color}, ${x.size})`;
-    return {
-      best_bet: fmt(p[0]),
-      alternative_bet: fmt(p[1]),
-      backup_bet: fmt(p[2]),
-      combined_strategy:
-        `Play ${p[0].number} with ${p[0].accuracy_percentage.toFixed(0)}% confidence. ` +
-        `Backup: ${p[1].number} (${p[1].accuracy_percentage.toFixed(0)}%) or ${p[2].number} (${p[2].accuracy_percentage.toFixed(0)}%).`,
-    };
-  }
-}
-
-/* ============================================================
-   API LAYER
-============================================================ */
-async function fetchLiveState(gameCode) {
-  const r = await fetch(`${DRAW_BASE}/WinGo/${gameCode}.json?ts=${Date.now()}`);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
-}
-
-async function fetchHistory(gameCode) {
-  const ts = Date.now();
-  for (const url of [
-    `${DRAW_BASE}/WinGo/${gameCode}/GetHistoryIssuePage.json?pageSize=500&pageNo=1&ts=${ts}`,
-    `${DRAW_BASE}/WinGo/${gameCode}/GetHistoryIssuePage.json?ts=${ts}`,
-  ]) {
-    try {
-      const r = await fetch(url);
-      if (!r.ok) continue;
-      const j = await r.json();
-      const list = j.data?.list || [];
-      if (list.length) return list;
-    } catch {
-      // Try the next fallback URL.
-    }
-  }
-  throw new Error('History fetch failed');
-}
-
-/* ============================================================
-   POLLING LOGIC
-============================================================ */
-async function pollData() {
+async function pollFromApi() {
+  if (_state.apiInFlight) return;
+  _state.apiInFlight = true;
   const gc = _state.gameCode;
   try {
-    const [live, history] = await Promise.all([fetchLiveState(gc), fetchHistory(gc)]);
+    const url = `${DRAW_BASE}/WinGo/${gc}/GetHistoryIssuePage.json?pageSize=120&pageNo=1`;
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+
+    const payload = await res.json();
+    const history = normalizeApiHistory(payload);
+    if (!history.length) throw new Error('No history rows');
+
+    const historyKey = history
+      .slice(0, 10)
+      .map((h) => `${h.issueNumber}:${h.number}`)
+      .join('|');
+
+    if (historyKey === _state.lastHistoryKey) {
+      setLive(true);
+      updateStatusBar('success', `Live via direct API at ${new Date().toLocaleTimeString()}`);
+      return;
+    }
+    _state.lastHistoryKey = historyKey;
+
+    const live = {
+      next: { issueNumber: issuePlusOne(history[0].issueNumber) },
+      current: { endTime: Date.now() + 45_000 },
+    };
 
     _state.liveData = live;
     _state.historyList = history;
-    _state.endTime = live.current?.endTime || null;
+    _state.endTime = live.current.endTime;
 
-    setLive(true);
     updateGameInfo(live, history);
+    setLive(true);
+    updateStatusBar('success', `Live via direct API at ${new Date().toLocaleTimeString()}`);
 
-    const currentPeriod = live.current?.issueNumber;
-    if (!_state.manualOverride) {
-      const nums = history.slice(0, 30).map((r) => parseInt(r.number, 10)).filter((n) => !isNaN(n));
-      _state.draws = nums;
-    }
-
-    if (_state.draws.length >= 10 && (_state.lastPeriodSeen !== currentPeriod || _state.predictionResult === null)) {
-      _state.lastPeriodSeen = currentPeriod;
-      runPrediction(_state.draws, currentPeriod);
-    }
-
-    updateStatusBar('success', `Updated at ${new Date().toLocaleTimeString()}`);
-  } catch (e) {
+    const pred = buildPredictionFromHistory(history);
+    _state.predictionResult = pred;
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('results-section').classList.add('visible');
+    renderCards(pred);
+    renderTrend(pred);
+    renderProbBars(pred.all_rankings);
+    renderFreqChart(pred.number_frequency);
+    renderSummary(pred);
+    renderTimestamp(pred.timestamp);
+  } catch (err) {
     setLive(false);
-    updateStatusBar('error', `Fetch error: ${e.message.slice(0, 50)}`);
+    updateStatusBar('error', `Data fetch failed: ${err.message}`);
+  } finally {
+    _state.apiInFlight = false;
   }
 }
 
-function updateGameInfo(live, history) {
-  const nextEl = document.getElementById('next-period');
-  if (nextEl) nextEl.textContent = live.next?.issueNumber || '-';
+function startApiPolling(reason) {
+  if (_state.fallbackMode) return;
 
-  const lastEl = document.getElementById('last-result');
-  if (history.length && lastEl) {
-    const lr = history[0];
-    const col = apiColorToJs(lr.color);
-    lastEl.innerHTML = `<span style="color:${colorBarHex(col)}">${lr.number}</span> <span style="color:var(--text-2);font-size:.7rem">(${col})</span>`;
+  _state.fallbackMode = true;
+  _state.fallbackReason = reason || 'Firebase unavailable';
+  if (gameStateRef) gameStateRef.off();
+  if (predictionRef) predictionRef.off();
+  stopApiPolling();
+
+  updateStatusBar('error', `${_state.fallbackReason}. Switching to direct API...`);
+  pollFromApi();
+
+  const interval = Math.min(5_000, Math.max(2_000, Math.floor((GAME_CONFIGS[_state.gameCode]?.intervalMs || 60_000) / 20)));
+  _state.pollTimer = setInterval(pollFromApi, interval);
+}
+
+function setupFirebaseListeners() {
+  if (!db) {
+    console.error("Firebase not initialized. Cannot setup listeners.");
+    startApiPolling('Firebase not configured');
+    return;
   }
 
-  _state.endTime = live.current?.endTime || null;
-  renderRecentChips(history.slice(0, 10));
+  _state.fallbackMode = false;
+  _state.fallbackReason = '';
+  _state.lastHistoryKey = '';
+  if (_state.firebaseFallbackTimer) {
+    clearTimeout(_state.firebaseFallbackTimer);
+    _state.firebaseFallbackTimer = null;
+  }
+  stopApiPolling();
+  
+  const gc = _state.gameCode;
+  
+  // Cleanup old listeners
+  if (gameStateRef) gameStateRef.off();
+  if (predictionRef) predictionRef.off();
+  
+  updateStatusBar('success', 'Connecting to Firebase...');
+  _state.firebaseFallbackTimer = setTimeout(() => {
+    if (!_state.historyList.length && !_state.predictionResult) {
+      startApiPolling('Firebase feed not available');
+    }
+  }, 1800);
+  
+  // Listen to Game State (countdown, recent history)
+  gameStateRef = db.ref(`/game_state/${gc}`);
+  gameStateRef.on('value', (snapshot) => {
+    const data = snapshot.val();
+    if (!data) {
+      startApiPolling('No Firebase game_state data');
+      return;
+    }
 
-  const lbl = document.getElementById('data-source-label');
-  if (lbl) lbl.textContent = `${GAME_CONFIGS[_state.gameCode]?.name || _state.gameCode} live`;
+    if (_state.firebaseFallbackTimer) {
+      clearTimeout(_state.firebaseFallbackTimer);
+      _state.firebaseFallbackTimer = null;
+    }
+    
+    _state.liveData = data.live;
+    _state.historyList = data.recent_history || [];
+    _state.endTime = data.live?.current?.endTime || null;
+    
+    setLive(true);
+    updateGameInfo(data.live, _state.historyList);
+    updateStatusBar('success', `Synced at ${new Date().toLocaleTimeString()}`);
+  }, (error) => {
+    setLive(false);
+    startApiPolling(`DB error: ${error.message}`);
+  });
+  
+  // Listen to Predictions
+  predictionRef = db.ref(`/predictions/${gc}`);
+  predictionRef.on('value', (snapshot) => {
+    const pred = snapshot.val();
+    if (!pred) {
+      startApiPolling('No Firebase prediction data');
+      return;
+    }
+    
+    _state.predictionResult = pred;
+    
+    document.getElementById('empty-state').style.display = 'none';
+    document.getElementById('results-section').classList.add('visible');
+
+    renderCards(pred);
+    renderTrend(pred);
+    renderProbBars(pred.all_rankings);
+    renderFreqChart(pred.number_frequency);
+    renderSummary(pred);
+    renderTimestamp(pred.timestamp);
+  });
 }
+
+// Deprecated polling mechanics replaced by Firebase listeners.
+async function pollData() { }
 
 /* ============================================================
-   COUNTDOWN
+   COUNTDOWN & TIMERS
 ============================================================ */
 function startCountdown() {
   if (_state.countdownTimer) clearInterval(_state.countdownTimer);
@@ -624,15 +404,6 @@ function setCountdown(m, s) {
   });
 }
 
-/* ============================================================
-   POLLING TIMER
-============================================================ */
-function schedulePoll() {
-  if (_state.pollTimer) clearInterval(_state.pollTimer);
-  _state.pollTimer = setInterval(pollData, 15_000);
-  pollData();
-}
-
 function selectGame(gameCode) {
   if (_state.gameCode === gameCode) return;
   _state.gameCode = gameCode;
@@ -640,6 +411,13 @@ function selectGame(gameCode) {
   _state.predictionResult = null;
   _state.manualOverride = false;
   _state.endTime = null;
+  _state.historyList = [];
+  _state.fallbackMode = false;
+  _state.lastHistoryKey = '';
+  if (_state.firebaseFallbackTimer) {
+    clearTimeout(_state.firebaseFallbackTimer);
+    _state.firebaseFallbackTimer = null;
+  }
 
   document.querySelectorAll('.game-tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.code === gameCode);
@@ -649,8 +427,27 @@ function selectGame(gameCode) {
   document.getElementById('next-period').textContent = '-';
   document.getElementById('last-result').textContent = '-';
 
-  schedulePoll();
+  setupFirebaseListeners();
 }
+
+function updateGameInfo(live, history) {
+  const nextEl = document.getElementById('next-period');
+  if (nextEl) nextEl.textContent = live.next?.issueNumber || '-';
+
+  const lastEl = document.getElementById('last-result');
+  if (history.length && lastEl) {
+    const lr = history[0];
+    const col = apiColorToJs(lr.color);
+    lastEl.innerHTML = `<span style="color:${colorBarHex(col)}">${lr.number}</span> <span style="color:var(--text-2);font-size:.7rem">(${col})</span>`;
+  }
+
+  _state.endTime = live.current?.endTime || null;
+  renderRecentChips(history.slice(0, 10));
+
+  const lbl = document.getElementById('data-source-label');
+  if (lbl) lbl.textContent = `${GAME_CONFIGS[_state.gameCode]?.name || _state.gameCode} live`;
+}
+
 
 /* ============================================================
    RENDER
@@ -669,25 +466,6 @@ function renderRecentChips(history) {
 
   const countEl = document.getElementById('history-count');
   if (countEl) countEl.textContent = `Last ${history.length}`;
-}
-
-function runPrediction(draws, nextPeriod) {
-  try {
-    const pred = new Predictor(draws, nextPeriod).generatePrediction();
-    _state.predictionResult = pred;
-
-    document.getElementById('empty-state').style.display = 'none';
-    document.getElementById('results-section').classList.add('visible');
-
-    renderCards(pred);
-    renderTrend(pred);
-    renderProbBars(pred.all_rankings);
-    renderFreqChart(pred.number_frequency);
-    renderSummary(pred);
-    renderTimestamp(pred.timestamp);
-  } catch (e) {
-    console.error('Prediction error:', e);
-  }
 }
 
 function renderCards(pred) {
@@ -767,7 +545,7 @@ function renderFreqChart(freq) {
 
   document.getElementById('freq-chart').innerHTML = Object.entries(freq).map(([num, cnt]) => {
     const h = Math.round(safeDiv(cnt, maxV) * 52);
-    const col = colorBarHex(ColorMapper.getColor(Number(num)));
+    const col = colorBarHex(numberToColor(Number(num)));
     return `<div class="freq-bar-wrap">
       <div class="freq-bar" style="height:${h}px;background:${col};opacity:0.75"></div>
       <span class="freq-label">${num}</span>
@@ -825,16 +603,11 @@ function updateStatusBar(type, msg) {
    MANUAL PREDICT / OVERRIDE
 ============================================================ */
 function manualPredict() {
-  if (_state.draws.length >= 10) {
-    const btn = document.getElementById('predict-btn');
-    btn.classList.add('loading');
-    setTimeout(() => {
-      runPrediction(_state.draws, _state.liveData?.current?.issueNumber || '');
-      btn.classList.remove('loading');
-    }, 50);
-  } else {
-    updateStatusBar('error', 'No data yet - waiting for live fetch to complete');
+  if (_state.fallbackMode) {
+    pollFromApi();
+    return;
   }
+  updateStatusBar('error', 'Manual trigger disabled while Firebase mode is active.');
 }
 
 function toggleManualInput() {
@@ -846,30 +619,37 @@ function toggleManualInput() {
 
 function applyManualDraws() {
   const raw = document.getElementById('draws-input').value.trim();
-  const errEl = document.getElementById('error-msg');
-  errEl.classList.remove('visible');
-
-  const tokens = raw.split(/[\s,]+/).filter(Boolean);
-  const nums = tokens.map(Number);
-  if (!tokens.length || nums.some((n) => isNaN(n) || n < 0 || n > 9 || !Number.isInteger(n)) || nums.length < 10) {
-    errEl.classList.add('visible');
+  const nums = raw.split(/[\s,]+/).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x >= 0 && x <= 9);
+  if (nums.length < 10) {
+    document.getElementById('error-msg').classList.add('visible');
     return;
   }
+  document.getElementById('error-msg').classList.remove('visible');
 
-  _state.draws = nums.slice(0, 20);
-  _state.manualOverride = true;
-  runPrediction(_state.draws, _state.liveData?.current?.issueNumber || '');
+  const history = nums.map((n, i) => ({
+    issueNumber: String(Date.now() - i),
+    number: n,
+    color: numberToColor(n),
+  }));
+
+  const pred = buildPredictionFromHistory(history);
+  _state.predictionResult = pred;
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('results-section').classList.add('visible');
+  renderCards(pred);
+  renderTrend(pred);
+  renderProbBars(pred.all_rankings);
+  renderFreqChart(pred.number_frequency);
+  renderSummary(pred);
+  renderTimestamp(pred.timestamp);
+  updateStatusBar('success', 'Manual prediction generated.');
 }
 
 function clearManual() {
   document.getElementById('draws-input').value = '';
   document.getElementById('error-msg').classList.remove('visible');
-  _state.manualOverride = false;
-  if (_state.historyList.length) {
-    const nums = _state.historyList.slice(0, 20).map((r) => parseInt(r.number, 10)).filter((n) => !isNaN(n));
-    _state.draws = nums;
-  }
 }
 
 startCountdown();
-schedulePoll();
+setupFirebaseListeners();
+;

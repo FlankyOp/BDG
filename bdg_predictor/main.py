@@ -13,6 +13,7 @@ from datetime import datetime
 from data_fetcher import DataFetcher, create_sample_data
 from predictor import Predictor
 from config import Config
+import firebase_client
 
 # Configure logging
 LOG_DIR = "logs"
@@ -50,6 +51,79 @@ class PredictionEngine:
         self.learning_file = os.path.join(LOG_DIR, "adaptive_weights.json")
         self.learning_profile = self._load_learning_profile()
         self.pending_feedback: Optional[Dict[str, Any]] = None
+        self.pending_status_eval: Optional[Dict[str, Any]] = None
+
+    @staticmethod
+    def _number_to_color(number: int) -> str:
+        if number == 5:
+            return "Violet"
+        if number in (1, 3, 7, 9):
+            return "Green"
+        return "Red"
+
+    @staticmethod
+    def _number_to_size(number: int) -> str:
+        return "Big" if number >= 5 else "Small"
+
+    @staticmethod
+    def _color_tokens(color_value: Any) -> List[str]:
+        raw = str(color_value or "").replace("|", ",").replace("/", ",")
+        parts = [p.strip().title() for p in raw.split(",") if p.strip()]
+        return parts if parts else ["Red"]
+
+    def _evaluate_pending_status(
+        self,
+        actual_number: int,
+        actual_period: str,
+        actual_color_value: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate previous prediction candidates against the latest actual draw."""
+        if not self.pending_status_eval:
+            return None
+
+        payload = self.pending_status_eval
+        predicted = cast(Dict[str, Dict[str, Any]], payload["predicted"]) 
+        primary = predicted.get("primary", {})
+        predicted_number = int(primary.get("number", 0))
+        predicted_color = str(primary.get("color", "Red"))
+        predicted_size = str(primary.get("size", "Small"))
+
+        color_tokens = self._color_tokens(actual_color_value)
+        actual_color = color_tokens[0]
+        actual_size = self._number_to_size(actual_number)
+
+        candidate_status: Dict[str, Dict[str, str]] = {}
+        for label, candidate in predicted.items():
+            c_num = int(candidate.get("number", -1))
+            c_color = str(candidate.get("color", "Red"))
+            c_size = str(candidate.get("size", "Small"))
+            candidate_status[label] = {
+                "number": "HIT" if c_num == actual_number else "MISS",
+                "color": "HIT" if c_color in color_tokens else "MISS",
+                "size": "HIT" if c_size == actual_size else "MISS",
+            }
+
+        evaluation = {
+            "target_period": payload.get("target_period"),
+            "actual_period": actual_period,
+            "predicted": predicted,
+            "actual": {
+                "number": actual_number,
+                "color": actual_color,
+                "color_tokens": color_tokens,
+                "size": actual_size,
+            },
+            "status": {
+                "number": "HIT" if predicted_number == actual_number else "MISS",
+                "color": "HIT" if predicted_color in color_tokens else "MISS",
+                "size": "HIT" if predicted_size == actual_size else "MISS",
+            },
+            "candidates": candidate_status,
+            "evaluated_at": datetime.now().isoformat(),
+        }
+
+        self.pending_status_eval = None
+        return evaluation
     
     # ==================== DATA RETRIEVAL ====================
     
@@ -96,6 +170,21 @@ class PredictionEngine:
             return create_sample_data()
     
     def run_single_prediction(self, period: Optional[str] = None) -> Optional[Dict[str, Any]]:
+
+        if period is None:
+            # Fetch the latest draw to get the current period
+            latest_draws_data = self.data_fetcher.fetch_past_draws()
+            if not latest_draws_data:
+                logger.error("Could not fetch latest draws data.")
+                return None
+            
+            latest_draws = self.data_fetcher.extract_draws(latest_draws_data)
+            if not latest_draws:
+                logger.error("Could not extract latest draws.")
+                return None
+
+            period = latest_draws[0]["period"]
+            logger.info(f"Using latest period from API: {period}")
         """
         Run a single prediction.
         
@@ -106,31 +195,93 @@ class PredictionEngine:
             Prediction result dictionary
         """
         logger.info("Generating single prediction...")
+
+        # Fetch the latest draw to get the current period
+        latest_draws_data = self.data_fetcher.fetch_past_draws()
+        if not latest_draws_data:
+            logger.error("Could not fetch latest draws data.")
+            return None
         
-        # Use default period if not provided
-        if not period:
-            period = f"{datetime.now().strftime('%Y%m%d%H%M%S')}0001"
-            logger.info(f"Auto-detected period: {period}")
+        latest_draws = self.data_fetcher.extract_draws(latest_draws_data)
+        if not latest_draws:
+            logger.error("Could not extract latest draws.")
+            return None
+
+        period_str = latest_draws[0]["period"]
+        if period_str is None:
+            logger.error("Could not extract period from latest draws.")
+            return None
+        logger.info(f"Using latest period from API: {period_str}")
         
         # Fetch draws
-        draws = self.fetch_latest_draws(period)
+        draws = self.fetch_latest_draws(period_str)
         if not draws or len(draws) < 10:
             logger.error("Insufficient draw data")
             return None
+
+        current_game_code = "WinGo_1M"
+
+        # Evaluate previous prediction against the latest completed draw.
+        hit_miss_status = self._evaluate_pending_status(
+            actual_number=draws[0],
+            actual_period=str(period_str),
+            actual_color_value=latest_draws[0].get("color"),
+        )
+        if hit_miss_status:
+            firebase_client.push_hit_miss_status(current_game_code, hit_miss_status)
+            logger.info(
+                "Hit/Miss | Number: %s | Color: %s | Size: %s",
+                hit_miss_status["status"]["number"],
+                hit_miss_status["status"]["color"],
+                hit_miss_status["status"]["size"],
+            )
 
         # Use the most recent completed number as feedback for the previous prediction.
         if Config.ENABLE_SELF_LEARNING:
             self._apply_feedback(actual_number=draws[0])
         
         # Generate prediction
-        predictor = Predictor(draws, period, weight_profile=self.learning_profile)
+        predictor = Predictor(draws, period_str, weight_profile=self.learning_profile)
         prediction = predictor.generate_prediction()
         print(predictor.format_output(prediction))
 
         self._capture_pending_feedback(predictor, prediction)
+        alternative = prediction.get("alternative_prediction") or prediction["primary_prediction"]
+        backup = prediction.get("strong_possibility") or alternative
+        self.pending_status_eval = {
+            "target_period": prediction.get("next_period"),
+            "predicted": {
+                "primary": {
+                    "number": int(prediction["primary_prediction"]["number"]),
+                    "color": str(prediction["primary_prediction"]["color"]),
+                    "size": str(prediction["primary_prediction"]["size"]),
+                },
+                "alternative": {
+                    "number": int(alternative["number"]),
+                    "color": str(alternative["color"]),
+                    "size": str(alternative["size"]),
+                },
+                "backup": {
+                    "number": int(backup["number"]),
+                    "color": str(backup["color"]),
+                    "size": str(backup["size"]),
+                },
+            },
+            "created_at": prediction.get("timestamp"),
+        }
         
         self.prediction_history.append(prediction)
         self._save_prediction(prediction)
+        
+        # Determine current game config to match front-end
+        # Here we just default to WinGo_1M, but ideally we'd pass it in if it's dynamic
+        # Push state and prediction to Firebase
+        firebase_client.push_game_state(
+            current_game_code, 
+            live_data={"current": {"issueNumber": period_str, "endTime": int(time.time() * 1000) + 60000}, "next": {"issueNumber": prediction["next_period"]}}, 
+            history_data=self._get_recent_history(period_str)
+        )
+        firebase_client.push_prediction(current_game_code, prediction)
         
         return prediction
 
@@ -296,6 +447,14 @@ class PredictionEngine:
         except Exception as e:
             logger.error(f"Error saving prediction: {e}")
     
+    def _get_recent_history(self, period: Optional[str]) -> List[Dict[str, Any]]:
+        """Safely get recent history draws, handling None cases."""
+        if period is None:
+            logger.warning("No period for _get_recent_history")
+            return []
+        data = self.data_fetcher.fetch_past_draws(period)
+        return self.data_fetcher.extract_draws(data) if data is not None else []
+
     def _print_session_summary(self) -> None:
         """Print summary of polling session."""
         if not self.prediction_history:

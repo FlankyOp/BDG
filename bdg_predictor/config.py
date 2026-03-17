@@ -16,7 +16,7 @@ class Config:
     """Application configuration."""
     
     # API Settings
-    API_BASE_URL = "https://wingo.oss-ap-southeast-7.aliyuncs.com"
+    API_BASE_URL = "https://draw.ar-lottery01.com"
     API_TIMEOUT = 10
     
     # Polling Settings

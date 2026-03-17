@@ -55,6 +55,7 @@ class Predictor:
             "current_period": self.period,
             "next_period": next_period,
             "draws_used": len(self.draws),
+            "scoring_profile": "hierarchical_color_size_number_v3",
             "learning_weights": self.probability_engine.weights,
             "primary_prediction": {
                 "number": predictions[0]["number"],

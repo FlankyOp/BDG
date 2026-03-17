@@ -1,148 +1,1010 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BDG Game Prediction Engine</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;600;700;800&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="./assets/css/styles.css" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlankyGoD BDG Engine V12</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap');
+        
+    :root {
+      --matrix-bg: #0d1117;
+      --matrix-panel: #161b22;
+      --neon-green: #00ff41;
+      --neon-red: #ff3333;
+      --neon-violet: #b800e6;
+      --text-main: #c9d1d9;
+    }
+        
+    body {
+      background-color: var(--matrix-bg);
+      color: var(--text-main);
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .panel {
+      background-color: var(--matrix-panel);
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+      transition: all 0.3s ease;
+    }
+
+    .neon-text-green { color: var(--neon-green); text-shadow: 0 0 5px rgba(0,255,65,0.4); }
+    .neon-text-red { color: var(--neon-red); text-shadow: 0 0 5px rgba(255,51,51,0.4); }
+    .neon-text-violet { color: var(--neon-violet); text-shadow: 0 0 5px rgba(184,0,230,0.4); }
+
+    .stat-box {
+      background: rgba(48, 54, 61, 0.4);
+      border: 1px solid #30363d;
+      border-radius: 8px;
+    }
+
+    .pulse {
+      animation: pulse-animation 2s infinite;
+    }
+
+    @keyframes pulse-animation {
+      0% { box-shadow: 0 0 0 0 rgba(0, 255, 65, 0.4); }
+      70% { box-shadow: 0 0 0 10px rgba(0, 255, 65, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(0, 255, 65, 0); }
+    }
+
+    /* Number Ball Styling */
+    .ball {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      font-weight: bold;
+      color: white;
+      box-shadow: inset 0 -2px 5px rgba(0,0,0,0.5);
+    }
+    .bg-red-violet { background: linear-gradient(135deg, var(--neon-red) 50%, var(--neon-violet) 50%); }
+    .bg-green-violet { background: linear-gradient(135deg, var(--neon-green) 50%, var(--neon-violet) 50%); }
+    .bg-red { background: var(--neon-red); }
+    .bg-green { background: var(--neon-green); }
+    .pred-conf-bar { width: 0%; }
+    .timer-container { position: relative; width: 56px; height: 56px; }
+    .timer-svg { transform: rotate(-90deg); width: 56px; height: 56px; }
+    .timer-circle { fill: none; stroke-width: 4; stroke: #21262d; }
+    .timer-progress {
+      fill: none;
+      stroke-width: 4;
+      stroke: var(--neon-green);
+      stroke-linecap: round;
+      transition: stroke-dashoffset 1s linear, stroke 0.2s linear;
+    }
+
+  </style>
 </head>
-<body>
-<div class="app-shell">
+<body class="min-h-screen p-4 md:p-8">
 
-  <!-- HEADER -->
-  <header class="header">
-    <div class="header-brand">
-      <div class="brand-icon">🎯</div>
-      <div>
-        <div class="brand-title">BDG Prediction Engine</div>
-        <div class="brand-sub">Live Data · Auto-Predict · Pattern Analysis</div>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="ai-status" id="ai-status">
-        <span class="pulse-dot"></span>
-        <span class="status-text" id="ai-sync-text">FLANKY-V12: SYNCED</span>
-      </div>
-      <div class="live-badge offline" id="live-badge">
-        <span class="live-dot"></span>
-        <span id="live-label">Connecting…</span>
-      </div>
-      <button class="btn btn-primary" id="predict-btn" onclick="manualPredict()">
-        <span class="spinner"></span>
-        <span class="btn-text">⚡ Predict Now</span>
-      </button>
-    </div>
-  </header>
-
-  <!-- GAME TYPE TABS + COUNTDOWN -->
-  <div class="game-tabs-section">
-    <div class="game-tabs-row">
-      <button class="game-tab active" data-code="WinGo_1M" onclick="selectGame('WinGo_1M')">
-        <span class="game-tab-name">WinGo 1 Min</span>
-        <span class="game-tab-interval">Every 1 minute</span>
-      </button>
-      <button class="game-tab" data-code="WinGo_3M" onclick="selectGame('WinGo_3M')">
-        <span class="game-tab-name">WinGo 3 Min</span>
-        <span class="game-tab-interval">Every 3 minutes</span>
-      </button>
-      <button class="game-tab" data-code="WinGo_5M" onclick="selectGame('WinGo_5M')">
-        <span class="game-tab-name">WinGo 5 Min</span>
-        <span class="game-tab-interval">Every 5 minutes</span>
-      </button>
-    </div>
-
-    <div class="game-info-row">
-      <div class="info-block">
-        <span class="label">Next Period</span>
-        <span class="info-val mono" id="next-period">—</span>
-      </div>
-      <div class="info-block">
-        <span class="label">Time Remaining</span>
-        <div class="countdown-display" id="countdown">
-          <span class="cd-digit" id="cd-m1">0</span>
-          <span class="cd-digit" id="cd-m0">0</span>
-          <span class="cd-sep">:</span>
-          <span class="cd-digit" id="cd-s1">0</span>
-          <span class="cd-digit" id="cd-s0">0</span>
+  <div class="max-w-6xl mx-auto space-y-6">
+    <!-- Header -->
+    <header class="flex flex-col md:flex-row justify-between items-center panel p-6">
+      <div class="flex items-center gap-4">
+        <div class="timer-container">
+          <svg class="timer-svg">
+            <circle class="timer-circle" cx="28" cy="28" r="24"></circle>
+            <circle id="timer-bar" class="timer-progress" cx="28" cy="28" r="24" stroke-dasharray="150.8" stroke-dashoffset="0"></circle>
+          </svg>
+          <div id="timer-text" class="absolute inset-0 flex items-center justify-center font-bold text-sm text-white">00</div>
+        </div>
+        <div>
+          <h1 class="text-2xl md:text-3xl font-extrabold text-white tracking-wider">
+            FLANKY<span class="neon-text-green">GoD</span> ENGINE
+          </h1>
+          <p class="text-sm text-gray-400 mt-1 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-green-500 pulse"></span>
+            Live V12 Auto-Predictor (1s Aggressive Polling)
+          </p>
         </div>
       </div>
-      <div class="info-block">
-        <span class="label">Last Result</span>
-        <span class="info-val mono" id="last-result">—</span>
+            
+      <div class="flex gap-2 mt-4 md:mt-0">
+        <button onclick="setMode('WinGo_30S')" id="btn-WinGo_30S" class="px-4 py-2 rounded font-bold transition-colors bg-green-600 text-white shadow-lg shadow-green-900/50">30s</button>
+        <button onclick="setMode('WinGo_1M')" id="btn-WinGo_1M" class="px-4 py-2 rounded border border-gray-600 hover:bg-gray-800 transition-colors text-gray-300">1m</button>
+        <button onclick="setMode('WinGo_3M')" id="btn-WinGo_3M" class="px-4 py-2 rounded border border-gray-600 hover:bg-gray-800 transition-colors text-gray-300">3m</button>
       </div>
-      <div class="info-block push-right">
-        <div class="status-bar" id="fetch-status">⏳ Initializing…</div>
+    </header>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <div class="panel p-4 flex flex-col items-center justify-center">
+        <p class="text-gray-400 text-sm uppercase font-bold tracking-wider">Total Tracked</p>
+        <p class="text-4xl font-extrabold text-white mt-2" id="stat-total">0</p>
+      </div>
+      <div class="panel p-4 flex flex-col items-center justify-center">
+        <p class="text-gray-400 text-sm uppercase font-bold tracking-wider">Number Acc</p>
+        <p class="text-4xl font-extrabold neon-text-green mt-2" id="stat-num">0%</p>
+        <p class="text-xs text-gray-500 mt-2 font-mono"><span id="hit-num" class="text-green-400">0</span> H / <span id="miss-num" class="text-red-400">0</span> M</p>
+      </div>
+      <div class="panel p-4 flex flex-col items-center justify-center">
+        <p class="text-gray-400 text-sm uppercase font-bold tracking-wider">Size Acc</p>
+        <p class="text-4xl font-extrabold neon-text-green mt-2" id="stat-size">0%</p>
+        <p class="text-xs text-gray-500 mt-2 font-mono"><span id="hit-size" class="text-green-400">0</span> H / <span id="miss-size" class="text-red-400">0</span> M</p>
+      </div>
+      <div class="panel p-4 flex flex-col items-center justify-center">
+        <p class="text-gray-400 text-sm uppercase font-bold tracking-wider">Color Acc</p>
+        <p class="text-4xl font-extrabold neon-text-green mt-2" id="stat-color">0%</p>
+        <p class="text-xs text-gray-500 mt-2 font-mono"><span id="hit-color" class="text-green-400">0</span> H / <span id="miss-color" class="text-red-400">0</span> M</p>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Active Prediction Panel -->
+      <div class="panel p-6 lg:col-span-1 border-t-4 border-t-[#00ff41] relative overflow-hidden">
+        <div class="absolute top-0 right-0 p-2 opacity-10">
+          <svg class="w-24 h-24" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M11.3 1.046A12.014 12.014 0 0010.399 0 11.996 11.996 0 001.046 8.7a12.014 12.014 0 000 2.6A11.996 11.996 0 008.7 18.954a12.014 12.014 0 002.6 0 11.996 11.996 0 007.654-7.654 12.014 12.014 0 000-2.6A11.996 11.996 0 0011.3 1.046zm-2.983 5.432a1 1 0 00-1.414 1.414l3.535 3.536-3.535 3.535a1 1 0 001.414 1.415l4.243-4.243a1 1 0 000-1.414L8.317 6.478z" clip-rule="evenodd"></path></svg>
+        </div>
+                
+        <h2 class="text-xl font-extrabold text-white mb-4 border-b border-gray-700 pb-2 tracking-wide">ACTIVE PREDICTION</h2>
+                
+        <div class="text-center space-y-6 relative z-10">
+          <div class="bg-gray-800/50 rounded-lg p-3 inline-block border border-gray-700">
+            <p class="text-gray-400 text-xs uppercase mb-1">Target Period</p>
+            <p id="pred-period" class="text-white font-mono font-bold text-lg tracking-widest">Waiting...</p>
+          </div>
+                    
+          <div class="flex justify-center items-center py-2">
+            <div class="text-center">
+              <p class="text-xs text-gray-500 uppercase mb-2 font-bold">Predicted Number</p>
+              <div id="pred-num-ball" class="ball bg-gray-700 text-3xl w-20 h-20 shadow-xl shadow-green-900/30 border-2 border-gray-600">?</div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3 mt-2">
+            <div class="stat-box p-4 bg-gray-800/80 border-gray-700">
+              <p class="text-xs text-gray-400 uppercase font-bold mb-1">Size</p>
+              <p id="pred-size" class="text-xl font-bold text-white">-</p>
+            </div>
+            <div class="stat-box p-4 bg-gray-800/80 border-gray-700">
+              <p class="text-xs text-gray-400 uppercase font-bold mb-1">Color</p>
+              <p id="pred-color" class="text-xl font-bold text-white">-</p>
+            </div>
+          </div>
+
+          <div class="stat-box p-4 mt-4 text-left bg-gray-800/80 border-gray-700">
+            <p class="text-xs text-gray-400 uppercase font-bold mb-1">Pattern Detected</p>
+            <p id="pred-pattern" class="text-sm font-bold text-blue-400 font-mono">-</p>
+          </div>
+
+          <div class="mt-4 bg-gray-800/50 p-4 rounded-lg border border-gray-700">
+            <div class="flex justify-between text-xs text-gray-300 font-bold mb-2 uppercase">
+              <span>AI Confidence</span>
+              <span id="pred-conf" class="neon-text-green">0%</span>
+            </div>
+            <div class="w-full bg-gray-900 rounded-full h-2.5 border border-gray-700 overflow-hidden">
+              <div id="pred-conf-bar" class="pred-conf-bar bg-green-500 h-2.5 rounded-full transition-all duration-1000 ease-out"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- History Table -->
+      <div class="panel p-6 lg:col-span-2 flex flex-col h-full">
+        <div class="flex justify-between items-center border-b border-gray-700 pb-2 mb-4">
+          <h2 class="text-xl font-extrabold text-white tracking-wide">LIVE RESULT STREAM</h2>
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-green-500 pulse"></span>
+            <span class="text-xs text-green-500 font-mono">Live Tracker Active</span>
+          </div>
+        </div>
+                
+        <div class="overflow-x-auto flex-grow">
+          <table class="w-full text-left text-sm">
+            <thead class="text-xs text-gray-400 uppercase bg-gray-800/80 border-b border-gray-700">
+              <tr>
+                <th class="px-4 py-3 rounded-tl-lg font-bold">Period</th>
+                <th class="px-4 py-3 font-bold text-center">Result</th>
+                <th class="px-4 py-3 font-bold text-center">Size</th>
+                <th class="px-4 py-3 font-bold text-center rounded-tr-lg">AI Accuracy</th>
+              </tr>
+            </thead>
+            <tbody id="history-body" class="divide-y divide-gray-800/50 font-mono">
+              <tr><td colspan="4" class="text-center py-12 text-gray-500">
+                <svg class="animate-spin h-8 w-8 text-green-500 mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Syncing with real-time API...
+              </td></tr>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- RECENT RESULTS -->
-  <div class="recent-section">
-    <div class="recent-header">
-      <span class="label">History — <span id="history-count" class="history-count">loading…</span></span>
-      <span class="label muted-label" id="data-source-label">—</span>
-    </div>
-    <div class="recent-chips" id="recent-chips">
-      <!-- chips rendered here -->
-    </div>
-  </div>
+  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.8.1/firebase-database-compat.js"></script>
+<script>
+  /** ==========================================
+   * FLANKYGOD V12 - CORE ENGINE LOGIC
+   * ========================================== */
+    const firebaseConfig = {
+      apiKey: "AIzaSyAJBUpptDCAxMOxbX6WjKhiedKmO_zdxH4",
+      authDomain: "flankygod-bdg.firebaseapp.com",
+      databaseURL: "https://flankygod-bdg-default-rtdb.firebaseio.com",
+      projectId: "flankygod-bdg",
+      storageBucket: "flankygod-bdg.firebasestorage.app",
+      messagingSenderId: "338443538676",
+      appId: "1:338443538676:web:bb3463404c8975a22bcea1",
+      measurementId: "G-TKTDT0VQTX"
+    };
 
-  <!-- MANUAL INPUT (collapsible) -->
-  <div class="input-section">
-    <div class="input-toggle-row" onclick="toggleManualInput()">
-      <span class="label manual-toggle-label">🔧 Manual Input Override (optional)</span>
-      <span class="input-toggle-icon" id="input-toggle-icon">▾</span>
-    </div>
-    <div class="input-body" id="input-body">
-      <div class="input-row">
-        <div class="input-group">
-          <label for="draws-input">Custom draws (0-9, comma/space separated, min 10):</label>
-          <input type="text" id="draws-input" class="draws-input mono"
-            placeholder="e.g. 3 7 2 8 1 5 4 9 6 0 2 7 3 8 5 1 4 9 6 2"
-            autocomplete="off" spellcheck="false" />
-        </div>
-        <div class="actions-row">
-          <button class="btn btn-secondary btn-sm" onclick="applyManualDraws()">Apply</button>
-          <button class="btn btn-ghost btn-sm" onclick="clearManual()">Clear</button>
-        </div>
-      </div>
-      <div class="error-msg" id="error-msg">⚠ Enter 10–20 numbers between 0 and 9</div>
-    </div>
-  </div>
+  const API_BASE = "https://draw.ar-lottery01.com";
+  let currentGame = 'WinGo_30S';
+  let currentInterval = 30;
+  let lastIssue = null;
+  let activePrediction = null;
+  let isFetching = false;
+  let lastTimerTriggerKey = '';
+  let hasBootstrapped = false;
+    let firebaseDb = null;
+    let historyCache = [];
+    let isApplyingPersistedState = false;
 
-  <!-- EMPTY STATE -->
-  <div class="empty-state" id="empty-state">
-    <div class="empty-state-icon">🔮</div>
-    <div class="empty-state-text">Fetching live data…</div>
-  </div>
+  const MODE_INTERVALS = {
+    WinGo_30S: 30,
+    WinGo_1M: 60,
+    WinGo_3M: 180,
+  };
 
-  <!-- RESULTS -->
-  <div id="results-section">
-    <div class="cards-grid" id="cards-grid"></div>
-    <div class="bento-grid">
-      <div>
-        <div class="panel">
-          <div class="panel-title"><span class="panel-title-dot"></span>Trend Analysis</div>
-          <div id="trend-panel"></div>
-        </div>
-        <div class="panel panel-spaced">
-          <div class="panel-title"><span class="panel-title-dot"></span>Frequency Distribution</div>
-          <div class="freq-chart" id="freq-chart"></div>
-        </div>
-      </div>
-      <div class="panel">
-        <div class="panel-title"><span class="panel-title-dot"></span>Probability Ranking</div>
-        <div id="prob-panel"></div>
-      </div>
-    </div>
-    <div class="summary-banner" id="summary-banner"></div>
-    <div class="gen-timestamp" id="gen-timestamp"></div>
-  </div>
+  function trackingPath() {
+    return `/client_tracking/${currentGame}`;
+  }
 
-</div><!-- /app-shell -->
-<script src="./assets/js/app.js"></script>
+  function trackingPathGlobal() {
+    return `/global_tracking/${currentGame}`;
+  }
+
+  function localTrackingKey() {
+    return `client_tracking_${currentGame}`;
+  }
+
+  function initFirebasePersistence() {
+    try {
+      if (typeof firebase === 'undefined') return;
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+      firebaseDb = firebase.database();
+    } catch (e) {
+      console.warn('Firebase init failed:', e);
+      firebaseDb = null;
+    }
+  }
+
+  async function loadPersistedSnapshot() {
+    // Local backup restore (fast and resilient if Firebase read fails/blocks)
+    try {
+      const raw = localStorage.getItem(localTrackingKey());
+      if (raw) {
+        const local = JSON.parse(raw);
+        if (local?.stats?.total > 0) {
+          stats = local.stats;
+          renderStatsPanels();
+        }
+        if (Array.isArray(local?.history_rows) && local.history_rows.length) {
+          historyCache = local.history_rows.slice(0, 50);
+          renderHistoryFromCache();
+        }
+      }
+    } catch (e) {
+      console.warn('Local restore failed:', e);
+    }
+
+    if (!firebaseDb) return;
+    try {
+      const snap = await firebaseDb.ref(trackingPath()).once('value');
+      const data = snap.val();
+      if (!data) return;
+
+      isApplyingPersistedState = true;
+
+      if (data.stats) {
+        const incomingStats = {
+          total: Number(data.stats.total || 0),
+          num: {
+            hit: Number(data.stats.num?.hit || 0),
+            miss: Number(data.stats.num?.miss || 0),
+          },
+          size: {
+            hit: Number(data.stats.size?.hit || 0),
+            miss: Number(data.stats.size?.miss || 0),
+          },
+          color: {
+            hit: Number(data.stats.color?.hit || 0),
+            miss: Number(data.stats.color?.miss || 0),
+          },
+        };
+
+        // Keep richer dataset if current bootstrap/local state already has more rounds.
+        if ((incomingStats.total || 0) >= (stats.total || 0)) {
+          stats = incomingStats;
+          renderStatsPanels();
+        }
+      }
+
+      const rows = Array.isArray(data.history_rows) ? data.history_rows : [];
+      if (rows.length && rows.length >= historyCache.length) {
+        historyCache = rows.slice(0, 50);
+        renderHistoryFromCache();
+      }
+
+      // Prefer global shared tracking if it has richer totals/history.
+      const [summarySnap, issuesSnap] = await Promise.all([
+        firebaseDb.ref(`${trackingPathGlobal()}/summary`).once('value'),
+        firebaseDb.ref(`${trackingPathGlobal()}/issues`).limitToLast(50).once('value'),
+      ]);
+
+      const summary = summarySnap.val();
+      if (summary) {
+        const incomingStats = {
+          total: Number(summary.total || 0),
+          num: {
+            hit: Number(summary.num?.hit || 0),
+            miss: Number(summary.num?.miss || 0),
+          },
+          size: {
+            hit: Number(summary.size?.hit || 0),
+            miss: Number(summary.size?.miss || 0),
+          },
+          color: {
+            hit: Number(summary.color?.hit || 0),
+            miss: Number(summary.color?.miss || 0),
+          },
+        };
+
+        if ((incomingStats.total || 0) >= (stats.total || 0)) {
+          stats = incomingStats;
+          renderStatsPanels();
+        }
+      }
+
+      const issues = issuesSnap.val() || {};
+      const issueRows = Object.values(issues)
+        .filter((r) => r && typeof r === 'object' && r.issueNumber)
+        .sort((a, b) => String(b.issueNumber).localeCompare(String(a.issueNumber)))
+        .slice(0, 50);
+
+      if (issueRows.length && issueRows.length >= historyCache.length) {
+        historyCache = issueRows.map((r) => ({
+          issueNumber: String(r.issueNumber || ''),
+          periodStr: String(r.periodStr || '').slice(-6),
+          num: Number(r.num || 0),
+          size: String(r.size || 'Small'),
+          eval: r.eval || null,
+        }));
+        renderHistoryFromCache();
+      }
+    } catch (e) {
+      console.warn('Firebase load failed:', e);
+    } finally {
+      isApplyingPersistedState = false;
+    }
+  }
+
+  async function persistLatestEvaluationToGlobal(roundRow) {
+    if (!firebaseDb || isApplyingPersistedState || !roundRow?.issueNumber || !roundRow?.eval) return;
+    try {
+      const issueRef = firebaseDb.ref(`${trackingPathGlobal()}/issues/${roundRow.issueNumber}`);
+      const tx = await issueRef.transaction((current) => current || roundRow);
+      if (!tx.committed) return;
+
+      const summaryRef = firebaseDb.ref(`${trackingPathGlobal()}/summary`);
+      await summaryRef.transaction((current) => {
+        const c = current || {
+          total: 0,
+          num: { hit: 0, miss: 0 },
+          size: { hit: 0, miss: 0 },
+          color: { hit: 0, miss: 0 },
+          updated_at: 0,
+        };
+
+        c.total = Number(c.total || 0) + 1;
+        c.num = c.num || { hit: 0, miss: 0 };
+        c.size = c.size || { hit: 0, miss: 0 };
+        c.color = c.color || { hit: 0, miss: 0 };
+
+        roundRow.eval.num ? c.num.hit++ : c.num.miss++;
+        roundRow.eval.size ? c.size.hit++ : c.size.miss++;
+        roundRow.eval.color ? c.color.hit++ : c.color.miss++;
+        c.updated_at = Date.now();
+        return c;
+      });
+    } catch (e) {
+      console.warn('Global Firebase save failed:', e);
+    }
+  }
+
+  async function persistSnapshotToFirebase() {
+    if (isApplyingPersistedState) return;
+
+    try {
+      localStorage.setItem(localTrackingKey(), JSON.stringify({
+        stats,
+        history_rows: historyCache.slice(0, 50),
+        updated_at: Date.now(),
+      }));
+    } catch (e) {
+      console.warn('Local save failed:', e);
+    }
+
+    if (!firebaseDb) return;
+    try {
+      await firebaseDb.ref(trackingPath()).set({
+        stats,
+        history_rows: historyCache.slice(0, 50),
+        updated_at: Date.now(),
+      });
+    } catch (e) {
+      console.warn('Firebase save failed:', e);
+    }
+  }
+
+  function renderHistoryFromCache() {
+    const tbody = document.getElementById('history-body');
+    if (!tbody) return;
+
+    const badge = (hit, label) => `
+      <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${hit ? 'bg-green-900/40 text-green-400 border border-green-800/50' : 'bg-red-900/40 text-red-400 border border-red-800/50'}">
+        ${label} ${hit ? '✓' : '✗'}
+      </span>
+    `;
+
+    tbody.innerHTML = historyCache.slice(0, 20).map((r) => `
+      <tr class="hover:bg-gray-800/60 transition-colors border-b border-gray-800/50">
+        <td class="px-4 py-4 font-mono text-gray-300 font-bold">${r.periodStr}</td>
+        <td class="px-4 py-4 text-center">
+          <div class="ball ${getBallClass(r.num)} mx-auto text-sm w-8 h-8">${r.num}</div>
+        </td>
+        <td class="px-4 py-4 text-center font-bold ${r.size === 'Big' ? 'text-yellow-400' : 'text-blue-400'}">${r.size}</td>
+        <td class="px-4 py-4 text-center">
+          ${r.eval
+            ? `<div class="flex flex-wrap gap-1 justify-center">${badge(r.eval.num, 'NUM')}${badge(r.eval.size, 'SIZ')}${badge(r.eval.color, 'COL')}</div>`
+            : '<span class="text-xs text-gray-500">PENDING</span>'}
+        </td>
+      </tr>
+    `).join('');
+  }
+
+  // Strict Stats tracking (Memory stored per session)
+  let stats = {
+    total: 0,
+    num: { hit: 0, miss: 0 },
+    size: { hit: 0, miss: 0 },
+    color: { hit: 0, miss: 0 }
+  };
+
+  // Core Mapping System (Flanky's Exact Specs)
+  const SIZE_MAP = {
+    0:"Small", 1:"Small", 2:"Small", 3:"Small", 4:"Small", 
+    5:"Big", 6:"Big", 7:"Big", 8:"Big", 9:"Big"
+  };
+    
+  const COLOR_MAP = {
+    0:"Red/Violet", 1:"Green", 2:"Red", 3:"Green", 4:"Red", 
+    5:"Green/Violet", 6:"Red", 7:"Green", 8:"Red", 9:"Green"
+  };
+    
+  function getBallClass(num) {
+    if (num === 0) return 'bg-red-violet';
+    if (num === 5) return 'bg-green-violet';
+    if ([2,4,6,8].includes(num)) return 'bg-red';
+    return 'bg-green';
+  }
+
+  // UI Mode Switcher
+  function setMode(mode) {
+    currentGame = mode;
+    currentInterval = MODE_INTERVALS[mode] || 30;
+    hasBootstrapped = false;
+    historyCache = [];
+    const modes = ['WinGo_30S', 'WinGo_1M', 'WinGo_3M'];
+    modes.forEach(m => {
+      const btn = document.getElementById(`btn-${m}`);
+      if(m === mode) {
+        btn.className = "px-4 py-2 rounded font-bold transition-all bg-green-600 text-white shadow-lg shadow-green-900/50 scale-105";
+      } else {
+        btn.className = "px-4 py-2 rounded border border-gray-600 hover:bg-gray-800 transition-all text-gray-300";
+      }
+    });
+        
+    // Reset tracking on mode switch
+    lastIssue = null;
+    activePrediction = null;
+    stats = {
+      total: 0,
+      num: { hit: 0, miss: 0 },
+      size: { hit: 0, miss: 0 },
+      color: { hit: 0, miss: 0 }
+    };
+    renderStatsPanels();
+    document.getElementById('history-body').innerHTML = '<tr><td colspan="4" class="text-center py-12 text-gray-500">Syncing new timeframe...</td></tr>';
+
+    loadPersistedSnapshot();
+    updateTimer();
+    fetchData();
+  }
+
+  function updateTimer() {
+    const now = new Date();
+    const totalElapsedSeconds = now.getSeconds() + (now.getMinutes() * 60) + (now.getHours() * 3600);
+    let remaining = currentInterval - (totalElapsedSeconds % currentInterval);
+    if (remaining === currentInterval) remaining = 0;
+
+    const textEl = document.getElementById('timer-text');
+    const circle = document.getElementById('timer-bar');
+    if (!textEl || !circle) return;
+
+    textEl.textContent = remaining < 10 ? `0${remaining}` : `${remaining}`;
+
+    const circumference = 150.8;
+    const offset = circumference - ((remaining || currentInterval) / currentInterval) * circumference;
+    circle.style.strokeDashoffset = `${offset}`;
+
+    if (remaining <= 5 && remaining !== 0) {
+      circle.style.stroke = 'var(--neon-red)';
+      textEl.style.color = 'var(--neon-red)';
+    } else {
+      circle.style.stroke = 'var(--neon-green)';
+      textEl.style.color = 'white';
+    }
+
+    const triggerKey = `${currentGame}:${now.getHours()}:${now.getMinutes()}:${remaining}`;
+    if ((remaining === 1 || remaining === 0) && lastTimerTriggerKey !== triggerKey) {
+      lastTimerTriggerKey = triggerKey;
+      // Trigger near boundary so prediction stays synced with new rounds.
+      setTimeout(fetchData, 250);
+    }
+  }
+
+  // Advanced Pattern Detection Engine
+  function detectPatterns(colors, sizes) {
+    if(colors.length < 6) return "Analyzing Context...";
+        
+    const c = colors.slice(0, 6);
+    const s = sizes.slice(0, 6);
+        
+    // Color Trading Detection
+    if(c[0] !== c[1] && c[1] !== c[2] && c[2] !== c[3]) return "1A1B (Color Swap)";
+    if(c[0] === c[1] && c[1] !== c[2] && c[2] === c[3]) return "2A2B (Color Pairs)";
+    if(c[0] === c[1] && c[1] === c[2] && c[0] !== c[3]) return "3A3B (Color Triples)";
+        
+    // Size Alternating Detection
+    if(s[0] !== s[1] && s[1] !== s[2] && s[2] !== s[3]) return "Alt Size (B-S-B-S)";
+        
+    // Streak Detection
+    let streak = 1;
+    for(let i=1; i<c.length; i++) {
+      if(c[i] === c[0]) streak++; else break;
+    }
+    if (streak >= 3) return `Streak (${streak}x ${c[0]})`;
+        
+    return "Mixed Sequence";
+  }
+
+  function computePredictionCandidate(draws) {
+    const nums = draws.map(d => parseInt(d.number));
+    const freq30 = {}; const freq10 = {};
+    nums.slice(0, 30).forEach(n => freq30[n] = (freq30[n] || 0) + 1);
+    nums.slice(0, 10).forEach(n => freq10[n] = (freq10[n] || 0) + 1);
+
+    let bestScore = -1;
+    let bestNum = 0;
+    for (let i = 0; i < 10; i++) {
+      let score = (freq30[i] || 0) + ((freq10[i] || 0) * 3.0);
+      if (nums[0] === i) {
+        const isStreak = nums[0] === nums[1] && nums[1] === nums[2];
+        if (!isStreak) score *= 0.5;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestNum = i;
+      }
+    }
+
+    return {
+      number: bestNum,
+      size: SIZE_MAP[bestNum],
+      color: COLOR_MAP[bestNum]
+    };
+  }
+
+  function computePredictionCandidate500(draws) {
+    const windowed = draws.slice(0, 500);
+    const nums = windowed.map(d => parseInt(d.number));
+    const freq500 = {}; const freq120 = {}; const freq30 = {};
+
+    nums.slice(0, 500).forEach(n => freq500[n] = (freq500[n] || 0) + 1);
+    nums.slice(0, 120).forEach(n => freq120[n] = (freq120[n] || 0) + 1);
+    nums.slice(0, 30).forEach(n => freq30[n] = (freq30[n] || 0) + 1);
+
+    let bestNum = 0;
+    let bestScore = -1;
+    for (let i = 0; i < 10; i++) {
+      let score = (freq500[i] || 0) * 1.0 + (freq120[i] || 0) * 2.2 + (freq30[i] || 0) * 3.6;
+      if (nums[0] === i) score *= 0.65;
+      if (score > bestScore) {
+        bestScore = score;
+        bestNum = i;
+      }
+    }
+
+    return {
+      number: bestNum,
+      size: SIZE_MAP[bestNum],
+      color: COLOR_MAP[bestNum]
+    };
+  }
+
+  function baseColorOf(number) {
+    return COLOR_MAP[number].includes('Red') ? 'Red' : 'Green';
+  }
+
+  function projectUpcomingTrend(colors, sizes) {
+    const c = colors.slice(0, 8);
+    const s = sizes.slice(0, 8);
+
+    let nextSize = s[0] || 'Big';
+    let nextColor = c[0] || 'Green';
+    let label = 'NEXT MIXED';
+
+    const sizeABAB = s.length >= 4 && s[0] !== s[1] && s[1] !== s[2] && s[2] !== s[3];
+    const sizeAABB = s.length >= 4 && s[0] === s[1] && s[2] === s[3] && s[0] !== s[2];
+    if (sizeABAB) {
+      nextSize = s[0] === 'Big' ? 'Small' : 'Big';
+      label = 'NEXT ABAB SIZE';
+    } else if (sizeAABB) {
+      nextSize = s[0];
+      label = 'NEXT AABB SIZE';
+    }
+
+    const colorABAB = c.length >= 4 && c[0] !== c[1] && c[1] !== c[2] && c[2] !== c[3];
+    const colorAABB = c.length >= 4 && c[0] === c[1] && c[2] === c[3] && c[0] !== c[2];
+    if (colorABAB) {
+      nextColor = c[0] === 'Red' ? 'Green' : 'Red';
+      label += ' + 1A1B COLOR';
+    } else if (colorAABB) {
+      nextColor = c[0];
+      label += ' + 2A2B COLOR';
+    }
+
+    return { nextSize, nextColor, label };
+  }
+
+  function generatePredictionV2(draws, currentPeriod) {
+    const windowed = draws.slice(0, 500);
+    const nums = windowed.map(d => parseInt(d.number));
+    const colors = nums.map(n => baseColorOf(n));
+    const sizes = nums.map(n => SIZE_MAP[n]);
+
+    const trend = projectUpcomingTrend(colors, sizes);
+
+    const freq500 = {}; const freq120 = {}; const freq30 = {};
+    nums.slice(0, 500).forEach(n => freq500[n] = (freq500[n] || 0) + 1);
+    nums.slice(0, 120).forEach(n => freq120[n] = (freq120[n] || 0) + 1);
+    nums.slice(0, 30).forEach(n => freq30[n] = (freq30[n] || 0) + 1);
+
+    let bestNum = 0;
+    let bestScore = -1;
+    for (let i = 0; i < 10; i++) {
+      let score = (freq500[i] || 0) * 1.0 + (freq120[i] || 0) * 2.2 + (freq30[i] || 0) * 3.6;
+      if (SIZE_MAP[i] === trend.nextSize) score *= 1.18;
+      if (baseColorOf(i) === trend.nextColor) score *= 1.12;
+      if (nums[0] === i) score *= 0.65;
+      if (score > bestScore) {
+        bestScore = score;
+        bestNum = i;
+      }
+    }
+
+    const baseline = (nums.length || 1) * 0.45;
+    const confRaw = (bestScore / baseline) * 100;
+    const conf = Math.min(99.0, Math.max(58.0, confRaw));
+
+    const nextPeriodInt = BigInt(currentPeriod) + 1n;
+    activePrediction = {
+      period: nextPeriodInt.toString(),
+      number: bestNum,
+      size: SIZE_MAP[bestNum],
+      color: COLOR_MAP[bestNum]
+    };
+
+    document.getElementById('pred-period').textContent = activePrediction.period;
+
+    const ball = document.getElementById('pred-num-ball');
+    ball.textContent = bestNum;
+    ball.className = `ball text-4xl w-24 h-24 shadow-2xl border-4 border-gray-700 mx-auto ${getBallClass(bestNum)}`;
+
+    document.getElementById('pred-size').textContent = activePrediction.size;
+
+    const colEl = document.getElementById('pred-color');
+    colEl.textContent = activePrediction.color;
+    colEl.className = `text-xl font-extrabold ${activePrediction.color.includes('Red') ? 'neon-text-red' : 'neon-text-green'}`;
+
+    document.getElementById('pred-pattern').textContent = `UPCOMING: ${trend.label}`;
+    document.getElementById('pred-conf').textContent = `${conf.toFixed(1)}%`;
+    document.getElementById('pred-conf-bar').style.width = `${conf}%`;
+  }
+
+  function renderStatsPanels() {
+    document.getElementById('stat-total').textContent = stats.total;
+
+    const renderPanel = (type) => {
+      const hit = stats[type].hit;
+      const miss = stats[type].miss;
+      const acc = stats.total > 0 ? ((hit / stats.total) * 100).toFixed(1) : 0;
+
+      const el = document.getElementById(`stat-${type}`);
+      el.textContent = `${acc}%`;
+      el.className = `text-4xl font-extrabold mt-2 ${acc >= 50 ? 'neon-text-green' : 'neon-text-red'}`;
+
+      document.getElementById(`hit-${type}`).textContent = hit;
+      document.getElementById(`miss-${type}`).textContent = miss;
+    };
+
+    renderPanel('num');
+    renderPanel('size');
+    renderPanel('color');
+  }
+
+  function bootstrapHistoryAndStats(draws) {
+    const evalByIssue = {};
+
+    stats = {
+      total: 0,
+      num: { hit: 0, miss: 0 },
+      size: { hit: 0, miss: 0 },
+      color: { hit: 0, miss: 0 }
+    };
+
+    // Replay recent rounds from older -> newer to build immediate history and accuracy.
+    for (let i = draws.length - 2; i >= 0; i--) {
+      const train = draws.slice(i + 1, i + 31);
+      if (train.length < 8) continue;
+
+      const pred = computePredictionCandidate500(train);
+      const actualNum = parseInt(draws[i].number);
+      const actSize = SIZE_MAP[actualNum];
+      const actBaseColor = COLOR_MAP[actualNum].includes('Red') ? 'Red' : 'Green';
+      const predBaseColor = pred.color.includes('Red') ? 'Red' : 'Green';
+
+      const ev = {
+        num: pred.number === actualNum,
+        size: pred.size === actSize,
+        color: predBaseColor === actBaseColor,
+      };
+
+      evalByIssue[String(draws[i].issueNumber)] = ev;
+      stats.total += 1;
+      ev.num ? stats.num.hit++ : stats.num.miss++;
+      ev.size ? stats.size.hit++ : stats.size.miss++;
+      ev.color ? stats.color.hit++ : stats.color.miss++;
+    }
+
+    renderStatsPanels();
+
+    historyCache = draws.slice(0, 50).map((r) => {
+      const num = parseInt(r.number);
+      const period = String(r.issueNumber || '').slice(-6);
+      const ev = evalByIssue[String(r.issueNumber)];
+      return {
+        issueNumber: String(r.issueNumber || ''),
+        periodStr: period,
+        num,
+        size: SIZE_MAP[num],
+        eval: ev || null,
+      };
+    });
+
+    renderHistoryFromCache();
+    persistSnapshotToFirebase();
+  }
+
+  // AI Prediction Generator
+  function generatePrediction(draws, currentPeriod) {
+    const nums = draws.map(d => parseInt(d.number));
+    const colors = nums.map(n => COLOR_MAP[n].includes("Red") ? "Red" : "Green");
+    const sizes = nums.map(n => SIZE_MAP[n]);
+        
+    // Probability Blending Logic
+    const freq30 = {}; const freq10 = {};
+    nums.slice(0,30).forEach(n => freq30[n] = (freq30[n]||0)+1);
+    nums.slice(0,10).forEach(n => freq10[n] = (freq10[n]||0)+1);
+
+    let bestScore = -1; 
+    let bestNum = 0;
+        
+    for(let i=0; i<10; i++) {
+      // Base weight from 30 draws, heavy bias on recent 10 draws
+      let score = (freq30[i]||0) + ((freq10[i]||0)*3.0);
+            
+      // Penalty for immediate repeats (unless strong streak detected)
+      if(nums[0] === i) {
+        let isStreak = nums[0] === nums[1] && nums[1] === nums[2];
+        if (!isStreak) score *= 0.5; 
+      }
+            
+      if(score > bestScore) { 
+        bestScore = score; 
+        bestNum = i; 
+      }
+    }
+
+    // Confidence calculation
+    const totalSample = nums.slice(0,30).length || 1;
+    const conf = Math.min(98.5, Math.max(55.0, (bestScore / totalSample) * 100 * 1.8));
+        
+    const nextPeriodInt = BigInt(currentPeriod) + 1n; // Handle large string IDs
+        
+    activePrediction = {
+      period: nextPeriodInt.toString(),
+      number: bestNum,
+      size: SIZE_MAP[bestNum],
+      color: COLOR_MAP[bestNum]
+    };
+
+    // Update UI Dashboard
+    document.getElementById('pred-period').textContent = activePrediction.period;
+        
+    const ball = document.getElementById('pred-num-ball');
+    ball.textContent = bestNum;
+    ball.className = `ball text-4xl w-24 h-24 shadow-2xl border-4 border-gray-700 mx-auto ${getBallClass(bestNum)}`;
+        
+    document.getElementById('pred-size').textContent = activePrediction.size;
+        
+    const colEl = document.getElementById('pred-color');
+    colEl.textContent = activePrediction.color;
+    colEl.className = `text-xl font-extrabold ${activePrediction.color.includes('Red') ? 'neon-text-red' : 'neon-text-green'}`;
+        
+    document.getElementById('pred-pattern').textContent = detectPatterns(colors, sizes);
+    document.getElementById('pred-conf').textContent = `${conf.toFixed(1)}%`;
+    document.getElementById('pred-conf-bar').style.width = `${conf}%`;
+  }
+
+  // Evaluate Result & Update Stats
+  function updateStats(actualNum) {
+    if(!activePrediction) return null;
+    stats.total++;
+        
+    const actSize = SIZE_MAP[actualNum];
+        
+    // Strict base color matching (ignore violet for base color hit calc)
+    const actBaseColor = COLOR_MAP[actualNum].includes("Red") ? "Red" : "Green";
+    const predBaseColor = activePrediction.color.includes("Red") ? "Red" : "Green";
+
+    const res = {
+      num: activePrediction.number === actualNum,
+      size: activePrediction.size === actSize,
+      color: predBaseColor === actBaseColor
+    };
+
+    res.num ? stats.num.hit++ : stats.num.miss++;
+    res.size ? stats.size.hit++ : stats.size.miss++;
+    res.color ? stats.color.hit++ : stats.color.miss++;
+
+    // Render Updated Stats
+    renderStatsPanels();
+
+    return res;
+  }
+
+  // Render History Table Row
+  function renderHistory(draws, latestEval) {
+    const tbody = document.getElementById('history-body');
+        
+    // Clear loading state
+    if(latestEval && tbody.innerHTML.includes('Syncing')) tbody.innerHTML = '';
+        
+    if (latestEval) {
+      const row = document.createElement('tr');
+      row.className = 'hover:bg-gray-800/60 transition-colors border-b border-gray-800/50';
+            
+      const num = parseInt(draws[0].number);
+      const periodStr = draws[0].issueNumber.slice(-6); // Show last 6 digits for cleanliness
+            
+      const badge = (hit, label) => `
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold ${hit ? 'bg-green-900/40 text-green-400 border border-green-800/50' : 'bg-red-900/40 text-red-400 border border-red-800/50'}">
+          ${label} ${hit ? '✓' : '✗'}
+        </span>
+      `;
+
+      row.innerHTML = `
+        <td class="px-4 py-4 font-mono text-gray-300 font-bold">${periodStr}</td>
+        <td class="px-4 py-4 text-center">
+          <div class="ball ${getBallClass(num)} mx-auto text-sm w-8 h-8">${num}</div>
+        </td>
+        <td class="px-4 py-4 text-center font-bold ${SIZE_MAP[num] === 'Big' ? 'text-yellow-400' : 'text-blue-400'}">${SIZE_MAP[num]}</td>
+        <td class="px-4 py-4 text-center">
+          <div class="flex flex-wrap gap-1 justify-center">
+            ${badge(latestEval.num, 'NUM')}
+            ${badge(latestEval.size, 'SIZ')}
+            ${badge(latestEval.color, 'COL')}
+          </div>
+        </td>
+      `;
+            
+      // Insert at top
+      tbody.insertBefore(row, tbody.firstChild);
+            
+      // Keep history lean (Max 20 rows)
+      if(tbody.children.length > 20) tbody.removeChild(tbody.lastChild);
+
+      historyCache.unshift({
+        issueNumber: String(draws[0].issueNumber || ''),
+        periodStr,
+        num,
+        size: SIZE_MAP[num],
+        eval: latestEval,
+      });
+      historyCache = historyCache.slice(0, 50);
+      persistSnapshotToFirebase();
+      persistLatestEvaluationToGlobal(historyCache[0]);
+    }
+  }
+
+  // 🚀 AGGRESSIVE POLLING FETCHER (1 Second Interval) 🚀
+  // This bypasses any external DB delays and goes straight to the source.
+  async function fetchData() {
+    if(isFetching) return;
+    isFetching = true;
+        
+    try {
+      // Append timestamp to bust cache
+      const url = `${API_BASE}/WinGo/${currentGame}/GetHistoryIssuePage.json?pageSize=500&pageNo=1&_t=${Date.now()}`;
+      const controller = new AbortController();
+      const timerId = setTimeout(() => controller.abort(), 5000);
+      const res = await fetch(url, { cache: "no-store", signal: controller.signal });
+      clearTimeout(timerId);
+            
+      if(!res.ok) throw new Error("API Network Error");
+            
+      const json = await res.json();
+      const draws = json.data?.list;
+            
+      if(draws && draws.length > 0) {
+        const currentIssue = draws[0].issueNumber;
+
+        if (!hasBootstrapped) {
+          bootstrapHistoryAndStats(draws);
+          hasBootstrapped = true;
+        }
+                
+        // DETECT NEW DRAW INSTANTLY
+        if(currentIssue !== lastIssue) {
+          let evaluation = null;
+          if (lastIssue !== null) {
+            // We hit a new issue, evaluate the previous prediction against the new actual result
+            evaluation = updateStats(parseInt(draws[0].number));
+          }
+                    
+          lastIssue = currentIssue;
+          renderHistory(draws, evaluation);
+          generatePredictionV2(draws, currentIssue); // Prep for upcoming trend
+        }
+      }
+    } catch (e) {
+      console.error("Fetch Error (Ignored to maintain polling):", e);
+    } finally {
+      isFetching = false;
+    }
+  }
+
+  // Run interval aggressively every 1000ms (1 second) for zero delay
+  setInterval(fetchData, 1000);
+  setInterval(updateTimer, 1000);
+  initFirebasePersistence();
+  loadPersistedSnapshot();
+  updateTimer();
+  fetchData(); // Kick off immediately
+
+</script>
 </body>
 </html>

@@ -9,8 +9,9 @@ import random
 from typing import Any, Dict, List, Optional, Mapping, cast
 
 import requests
+from config import Config
 
-DRAW_BASE = "https://draw.ar-lottery01.com"
+DRAW_BASE = Config.API_BASE_URL
 
 
 class DataFetcher:

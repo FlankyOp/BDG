@@ -33,3 +33,7 @@ Thumbs.db
 
 # Node
 node_modules/
+
+# Netlify
+.netlify/
+bdg_predictor/.deploy_web/

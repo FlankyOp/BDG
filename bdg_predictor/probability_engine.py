@@ -22,10 +22,131 @@ class ProbabilityEngine:
             draws: List of recent draw numbers
             patterns: Pattern analysis results from PatternDetector
         """
+        # Draws are provided newest-first by the fetcher/main engine.
         self.draws = draws
         self.patterns: Dict[str, Any] = patterns
         self.detector = PatternDetector(draws)
         self.weights = self._resolve_weights(weight_profile)
+
+    def _repeat_penalty_multiplier(self, number: int) -> float:
+        """Return a multiplier that penalizes immediate/recent repeats."""
+        if not self.draws:
+            return 1.0
+
+        recent_2 = self.draws[:2]
+        recent_5 = self.draws[:5]
+        recent_10 = self.draws[:10]
+        multiplier = 1.0
+
+        # Strongly discourage predicting the same immediate latest number.
+        if number == self.draws[0]:
+            multiplier *= 0.55
+
+        # Additional dampening if a number is repeating in the last 2 rounds.
+        if recent_2.count(number) == 2:
+            multiplier *= 0.70
+
+        # Extra anti-lock damping for zero if it is already overrepresented recently.
+        if number == 0 and recent_10.count(0) >= 2:
+            multiplier *= 0.85
+        if number == 0 and recent_5.count(0) >= 2:
+            multiplier *= 0.75
+
+        # Penalize hot numbers that dominated the very recent short window.
+        if recent_5.count(number) >= 3:
+            multiplier *= 0.80
+
+        return multiplier
+
+    def _extract_preferred_color(self) -> Tuple[Optional[str], float]:
+        """
+        Extract the preferred color from detected patterns using hierarchy:
+        1. nAnB pattern (if high confidence)
+        2. Color cycle (if detected and strong)
+        3. Dominant color (if frequency-based signal is strong enough)
+        
+        Returns:
+            Tuple of (preferred_color: str or None, confidence: float between 0 and 1)
+        """
+        cp = self.patterns.get("color_patterns", {})
+        
+        # Check nAnB pattern first (most explicit pattern)
+        nAnB = cp.get("nAnB_pattern", {})
+        if nAnB.get("type") and nAnB.get("strength", 0) >= 0.65:
+            next_color = nAnB.get("next_color")
+            strength = float(nAnB.get("strength", 0.65))
+            confidence = min(0.92, 0.65 + strength * 0.30)
+            logger.debug(f"Color hierarchy: nAnB pattern '{nAnB['type']}' -> {next_color} (conf={confidence:.2f})")
+            return (next_color, confidence)
+        
+        # Check color cycle
+        color_cycle = cp.get("color_cycle", {})
+        if color_cycle.get("detected"):
+            next_color = color_cycle.get("next_color")
+            cycle_strength = float(color_cycle.get("strength", 0.70))
+            confidence = min(0.88, 0.60 + cycle_strength * 0.25)
+            logger.debug(f"Color hierarchy: cycle pattern -> {next_color} (conf={confidence:.2f})")
+            return (next_color, confidence)
+        
+        # Use dominant color if strong enough (>55% frequency)
+        dom = cp.get("dominant_color", {})
+        if dom.get("color"):
+            percentage = float(dom.get("percentage", 0.0))
+            if percentage >= 55:
+                dom_strength = float(dom.get("strength", 0.45))
+                confidence = min(0.78, 0.45 + dom_strength * 0.30)
+                logger.debug(f"Color hierarchy: dominant '{dom['color']}' {percentage:.1f}% (conf={confidence:.2f})")
+                return (dom["color"], confidence)
+        
+        # No strong color signal
+        logger.debug("Color hierarchy: no strong signal, will blend all colors")
+        return (None, 0.0)
+
+    def _extract_preferred_size(self) -> Tuple[Optional[str], float]:
+        """
+        Extract the preferred size from detected patterns using hierarchy:
+        1. Alternating pattern (if high confidence)
+        2. Repeating pattern (if detected)
+        3. Current streak direction (if strong enough)
+        
+        Returns:
+            Tuple of (preferred_size: str or None, confidence: float between 0 and 1)
+        """
+        sp = self.patterns.get("size_patterns", {})
+        
+        # Check alternating pattern first
+        alt = sp.get("alternating", {})
+        if alt.get("found", False):
+            alt_strength = float(alt.get("strength", 0.78))
+            if alt_strength >= 0.75:
+                next_size = alt.get("next_expected")
+                confidence = min(0.90, 0.70 + alt_strength * 0.25)
+                logger.debug(f"Size hierarchy: alternating pattern -> {next_size} (conf={confidence:.2f})")
+                return (next_size, confidence)
+        
+        # Check repeating pattern
+        rep = sp.get("repeating", {})
+        if rep.get("found", False):
+            rep_strength = float(rep.get("strength", 0.72))
+            next_size = rep.get("next_expected")
+            confidence = min(0.85, 0.65 + rep_strength * 0.20)
+            logger.debug(f"Size hierarchy: repeating pattern -> {next_size} (conf={confidence:.2f})")
+            return (next_size, confidence)
+        
+        # Check current streak (only if significant length)
+        streak = sp.get("current_streak", {})
+        streak_len = int(streak.get("length", 0))
+        if streak_len >= 3:
+            # Strong reversal signal
+            streak_type = streak.get("type")
+            next_expected = "Small" if streak_type == "Big" else "Big"
+            confidence = min(0.80, 0.50 + streak_len * 0.08)
+            logger.debug(f"Size hierarchy: {streak_len}-streak reversal -> {next_expected} (conf={confidence:.2f})")
+            return (next_expected, confidence)
+        
+        # No strong size signal
+        logger.debug("Size hierarchy: no strong signal, will blend all sizes")
+        return (None, 0.0)
 
     def _resolve_weights(self, profile: Optional[Dict[str, float]]) -> Dict[str, float]:
         """Resolve active weights and normalize them to sum to 1."""
@@ -83,7 +204,7 @@ class ProbabilityEngine:
                 weight += 0.35
         
         # Apply size balance rule
-        recent_sizes = self.detector.sizes[-5:]
+        recent_sizes = self.detector.sizes[:5]
         if recent_sizes.count("Big") >= 3:
             # Majority Big -> boost Small
             if size == "Small":
@@ -185,12 +306,12 @@ class ProbabilityEngine:
             Weight between 0.0 and 1.0
         """
         # If number hasn't appeared recently, add slight randomness boost
-        if number not in self.draws[-3:]:
+        if number not in self.draws[:3]:
             return 0.15
-        
-        # Recent appearance -> decrease weight
-        last_appearance = len(self.draws) - 1 - self.draws[::-1].index(number)
-        recency_factor = last_appearance / len(self.draws)
+
+        # Newest-first indexing: lower index means more recent.
+        last_appearance = self.draws.index(number)
+        recency_factor = last_appearance / max(len(self.draws), 1)
         
         return recency_factor * 0.10
     
@@ -262,31 +383,83 @@ class ProbabilityEngine:
         # Add color weight if significant
         if color > 0.1:
             score = score * 0.95 + color * 0.05
+
+        # Prevent number lock behavior caused by immediate repeats/hot clustering.
+        score *= self._repeat_penalty_multiplier(number)
         
         return min(score, 1.0)
     
     def rank_all_numbers(self) -> List[Tuple[int, float, str, str]]:
         """
-        Rank all numbers 0-9 by confidence score.
+        Rank all numbers 0-9 using strict hierarchy: color -> size -> number score.
+        Numbers are grouped into tiers with color as primary gate, then size, then score.
         
         Returns:
-            List of (number, score, size, color) sorted by score descending
+            List of (number, score, size, color) sorted by hierarchy then score descending
         """
-        rankings: List[Tuple[int, float, str, str]] = []
+        # Extract hierarchy preferences
+        preferred_color, color_conf = self._extract_preferred_color()
+        preferred_size, size_conf = self._extract_preferred_size()
         
+        # Build full rankings with metadata
+        all_rankings: List[Dict[str, Any]] = []
         for number in range(10):
             score = self.calculate_confidence_score(number)
             size = SizeMapper.get_size(number)
             color = ColorMapper.get_color(number)
             
-            rankings.append((number, score, size, color))
+            # Determine hierarchy tier for this number
+            # Tier 1: matches preferred color (if strong signal)
+            # Tier 2: matches preferred size (if strong signal and no preferred color)
+            # Tier 3: fallback (all numbers sorted by score)
+            tier = 3  # Default fallback tier
+            
+            if preferred_color and color_conf >= 0.60:
+                # Strong color signal means color-filtered tier
+                # Check if this number's base color matches preferred (ignore Violet for base matching)
+                base_color = "Red" if number in [0, 2, 4, 6, 8] else "Green"
+                pref_base_color = "Red" if preferred_color in [0, 2, 4, 6, 8] else "Green"
+                
+                if base_color == pref_base_color or number == 5 and preferred_color == "Green/Violet":
+                    tier = 1  # Primary color tier
+                elif preferred_size and size_conf >= 0.60 and size == preferred_size:
+                    tier = 2  # Secondary size tier (fallback within same color proximity)
+                else:
+                    tier = 3  # Fallback tier
+            elif preferred_size and size_conf >= 0.60:
+                # Size-only gating (no strong color signal)
+                if size == preferred_size:
+                    tier = 1  # Size tier becomes primary
+                else:
+                    tier = 2  # Secondary tier
+            
+            all_rankings.append({
+                "number": number,
+                "score": score,
+                "size": size,
+                "color": color,
+                "tier": tier,
+                "hierarchy_metadata": {
+                    "preferred_color": preferred_color,
+                    "color_conf": color_conf,
+                    "preferred_size": preferred_size,
+                    "size_conf": size_conf,
+                    "assigned_tier": tier
+                }
+            })
         
-        # Sort by score descending
-        rankings.sort(key=lambda x: x[1], reverse=True)
+        # Sort by: tier (ascending, so tier 1 first), then score (descending)
+        all_rankings.sort(key=lambda x: (x["tier"], -x["score"]))
         
-        logger.info("Number rankings:")
-        for num, score, size, color in rankings[:5]:
-            logger.info(f"  {num}: {score:.2%} ({size}, {color})")
+        # Convert back to tuple format for backward compatibility
+        rankings: List[Tuple[int, float, str, str]] = [
+            (r["number"], r["score"], r["size"], r["color"]) for r in all_rankings
+        ]
+        
+        logger.info(f"Hierarchical rankings (color_signal={color_conf:.2f}, size_signal={size_conf:.2f}):")
+        for i, (num, score, size, color) in enumerate(rankings[:5]):
+            tier = all_rankings[i]["tier"]
+            logger.info(f"  {i+1}. {num}: {score:.2%} ({size}, {color}) [tier={tier}]")
         
         return rankings
     
