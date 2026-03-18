@@ -1,0 +1,12 @@
+{
+  "rules": {
+    "predictions": {
+      ".read": true,
+      ".write": false
+    },
+    "game_state": {
+      ".read": true,
+      ".write": false
+    }
+  }
+}

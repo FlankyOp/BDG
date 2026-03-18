@@ -1,19 +1,38 @@
 /* ============================================================
    CONSTANTS
 ============================================================ */
-const DRAW_BASE = 'https://draw.ar-lottery01.com';
+const RUNTIME_CONFIG = window.BDG_CONFIG || {};
+const DRAW_BASE = RUNTIME_CONFIG.drawBase || 'https://draw.ar-lottery01.com';
 
-const GAME_CONFIGS = {
+const NUMBER_COLOR_MAP = {
+  0: 'Red',
+  1: 'Green',
+  2: 'Red',
+  3: 'Green',
+  4: 'Red',
+  5: 'Violet',
+  6: 'Red',
+  7: 'Green',
+  8: 'Red',
+  9: 'Green',
+};
+
+const DEFAULT_GAME_CONFIGS = {
   WinGo_1M: { name: 'WinGo 1 Min', intervalMs: 60_000 },
   WinGo_3M: { name: 'WinGo 3 Min', intervalMs: 180_000 },
   WinGo_5M: { name: 'WinGo 5 Min', intervalMs: 300_000 },
+};
+
+const GAME_CONFIGS = {
+  ...DEFAULT_GAME_CONFIGS,
+  ...(RUNTIME_CONFIG.gameConfigs || {}),
 };
 
 /* ============================================================
    FIREBASE CONFIGURATION
 ============================================================ */
 // IMPORTANT: REPLACE WITH YOUR ACTUAL FIREBASE CONFIG
-const firebaseConfig = {
+const firebaseConfig = RUNTIME_CONFIG.firebase || {
   apiKey: "AIzaSyAJBUpptDCAxMOxbX6WjKhiedKmO_zdxH4",
   authDomain: "flankygod-bdg.firebaseapp.com",
   databaseURL: "https://flankygod-bdg-default-rtdb.firebaseio.com",
@@ -52,6 +71,8 @@ let _state = {
   apiInFlight: false,
   lastHistoryKey: '',
   firebaseFallbackTimer: null,
+  firebaseRecoveryTimer: null,
+  firebaseSessionId: 0,
 };
 
 /* ============================================================
@@ -59,25 +80,24 @@ let _state = {
 ============================================================ */
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function safeDiv(a, b) { return b === 0 ? 0 : a / b; }
+function normalizeColorName(value) {
+  if (!value) return 'Red';
+  const c = String(value).trim().toLowerCase();
+  if (c.includes('violet')) return 'Violet';
+  if (c.includes('green')) return 'Green';
+  return 'Red';
+}
 function colorBarHex(color) {
   return color === 'Red' ? '#FF4444'
        : color === 'Green' ? '#44CC66'
        : color === 'Violet' ? '#A855F7' : '#7C3AED';
 }
 function apiColorToJs(apiColor) {
-  if (!apiColor) return 'Red';
-  const c = apiColor.toLowerCase();
-  if (c.includes('violet')) return 'Violet';
-  if (c.includes('green')) return 'Green';
-  return 'Red';
+  return normalizeColorName(apiColor);
 }
 
 function numberToColor(n) {
-  const map = {
-    0:'Red',1:'Green',2:'Red',3:'Green',4:'Red',
-    5:'Violet',6:'Red',7:'Green',8:'Red',9:'Green'
-  };
-  return map[n] || 'Red';
+  return NUMBER_COLOR_MAP[Number(n)] || 'Red';
 }
 
 function numberToSize(n) {
@@ -104,11 +124,11 @@ function normalizeApiHistory(payload) {
   return rows
     .map((r) => {
       const number = Number(r?.number);
-      if (!Number.isFinite(number)) return null;
+      if (!Number.isFinite(number) || number < 0 || number > 9) return null;
       return {
         issueNumber: String(r.issueNumber ?? r.period ?? ''),
         number,
-        color: r.color || numberToColor(number),
+        color: normalizeColorName(r.color || numberToColor(number)),
       };
     })
     .filter(Boolean);
@@ -181,6 +201,12 @@ function buildPredictionFromHistory(history) {
       size: p2.size,
       accuracy: toPct(p2.score),
     },
+    backup_prediction: {
+      number: p3.number,
+      color: p3.color,
+      size: p3.size,
+      accuracy: toPct(p3.score),
+    },
     strong_possibility: {
       number: p3.number,
       color: p3.color,
@@ -211,6 +237,17 @@ function buildPredictionFromHistory(history) {
 ============================================================ */
 let gameStateRef = null;
 let predictionRef = null;
+
+function clearFirebaseTimers() {
+  if (_state.firebaseFallbackTimer) {
+    clearTimeout(_state.firebaseFallbackTimer);
+    _state.firebaseFallbackTimer = null;
+  }
+  if (_state.firebaseRecoveryTimer) {
+    clearInterval(_state.firebaseRecoveryTimer);
+    _state.firebaseRecoveryTimer = null;
+  }
+}
 
 function stopApiPolling() {
   if (_state.pollTimer) {
@@ -281,6 +318,7 @@ function startApiPolling(reason) {
 
   _state.fallbackMode = true;
   _state.fallbackReason = reason || 'Firebase unavailable';
+  clearFirebaseTimers();
   if (gameStateRef) gameStateRef.off();
   if (predictionRef) predictionRef.off();
   stopApiPolling();
@@ -290,6 +328,14 @@ function startApiPolling(reason) {
 
   const interval = Math.min(5_000, Math.max(2_000, Math.floor((GAME_CONFIGS[_state.gameCode]?.intervalMs || 60_000) / 20)));
   _state.pollTimer = setInterval(pollFromApi, interval);
+
+  if (db) {
+    _state.firebaseRecoveryTimer = setInterval(() => {
+      if (_state.fallbackMode) {
+        setupFirebaseListeners();
+      }
+    }, 60_000);
+  }
 }
 
 function setupFirebaseListeners() {
@@ -302,10 +348,9 @@ function setupFirebaseListeners() {
   _state.fallbackMode = false;
   _state.fallbackReason = '';
   _state.lastHistoryKey = '';
-  if (_state.firebaseFallbackTimer) {
-    clearTimeout(_state.firebaseFallbackTimer);
-    _state.firebaseFallbackTimer = null;
-  }
+  _state.firebaseSessionId += 1;
+  const sessionId = _state.firebaseSessionId;
+  clearFirebaseTimers();
   stopApiPolling();
   
   const gc = _state.gameCode;
@@ -316,6 +361,7 @@ function setupFirebaseListeners() {
   
   updateStatusBar('success', 'Connecting to Firebase...');
   _state.firebaseFallbackTimer = setTimeout(() => {
+    if (sessionId !== _state.firebaseSessionId) return;
     if (!_state.historyList.length && !_state.predictionResult) {
       startApiPolling('Firebase feed not available');
     }
@@ -330,10 +376,8 @@ function setupFirebaseListeners() {
       return;
     }
 
-    if (_state.firebaseFallbackTimer) {
-      clearTimeout(_state.firebaseFallbackTimer);
-      _state.firebaseFallbackTimer = null;
-    }
+    if (sessionId !== _state.firebaseSessionId) return;
+    clearFirebaseTimers();
     
     _state.liveData = data.live;
     _state.historyList = data.recent_history || [];
@@ -355,6 +399,9 @@ function setupFirebaseListeners() {
       startApiPolling('No Firebase prediction data');
       return;
     }
+
+    if (sessionId !== _state.firebaseSessionId) return;
+    clearFirebaseTimers();
     
     _state.predictionResult = pred;
     
@@ -414,10 +461,8 @@ function selectGame(gameCode) {
   _state.historyList = [];
   _state.fallbackMode = false;
   _state.lastHistoryKey = '';
-  if (_state.firebaseFallbackTimer) {
-    clearTimeout(_state.firebaseFallbackTimer);
-    _state.firebaseFallbackTimer = null;
-  }
+  clearFirebaseTimers();
+  stopApiPolling();
 
   document.querySelectorAll('.game-tab').forEach((t) => {
     t.classList.toggle('active', t.dataset.code === gameCode);
@@ -437,7 +482,7 @@ function updateGameInfo(live, history) {
   const lastEl = document.getElementById('last-result');
   if (history.length && lastEl) {
     const lr = history[0];
-    const col = apiColorToJs(lr.color);
+    const col = normalizeColorName(lr.color);
     lastEl.innerHTML = `<span style="color:${colorBarHex(col)}">${lr.number}</span> <span style="color:var(--text-2);font-size:.7rem">(${col})</span>`;
   }
 
@@ -459,9 +504,9 @@ function renderRecentChips(history) {
   const newFirst = String(history[0]?.number);
 
   container.innerHTML = history.map((r, i) => {
-    const col = apiColorToJs(r.color);
+    const col = normalizeColorName(r.color);
     const cls = `chip chip-${col}${i === 0 && newFirst !== prevFirst ? ' chip-new' : ''}`;
-    return `<div class="${cls}" title="#${r.issueNumber} · ${r.number} (${apiColorToJs(r.color)})">${r.number}</div>`;
+    return `<div class="${cls}" title="#${r.issueNumber} · ${r.number} (${col})">${r.number}</div>`;
   }).join('');
 
   const countEl = document.getElementById('history-count');
@@ -469,15 +514,16 @@ function renderRecentChips(history) {
 }
 
 function renderCards(pred) {
+  const backupPrediction = pred.backup_prediction || pred.strong_possibility;
   const defs = [
     { key: 'primary_prediction', label: 'PRIMARY PREDICTION', cls: 'primary' },
     { key: 'alternative_prediction', label: 'ALTERNATIVE PREDICTION', cls: 'alternative' },
-    { key: 'strong_possibility', label: 'STRONG POSSIBILITY', cls: 'possibility' },
+    { key: 'backup_prediction', label: 'BACKUP PREDICTION', cls: 'possibility', fallback: backupPrediction },
   ];
 
   const grid = document.getElementById('cards-grid');
-  grid.innerHTML = defs.map(({ key, label, cls }) => {
-    const p = pred[key];
+  grid.innerHTML = defs.map(({ key, label, cls, fallback }) => {
+    const p = pred[key] || fallback;
     if (!p) return '';
     const pct = parseFloat(p.accuracy);
     const bar = colorBarHex(p.color);
@@ -557,7 +603,7 @@ function renderSummary(pred) {
   const s = pred.summary;
   const p = pred.primary_prediction;
   const al = pred.alternative_prediction;
-  const st = pred.strong_possibility;
+  const st = pred.backup_prediction || pred.strong_possibility;
   const pill = (bet, col) => `<span class="bet-pill" style="border-color:${colorBarHex(col)};color:${colorBarHex(col)}">${bet}</span>`;
 
   document.getElementById('summary-banner').innerHTML = `
@@ -619,7 +665,9 @@ function toggleManualInput() {
 
 function applyManualDraws() {
   const raw = document.getElementById('draws-input').value.trim();
-  const nums = raw.split(/[\s,]+/).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x >= 0 && x <= 9);
+  const nums = (raw.match(/\d+/g) || [])
+    .map((x) => Number(x))
+    .filter((x) => Number.isInteger(x) && x >= 0 && x <= 9);
   if (nums.length < 10) {
     document.getElementById('error-msg').classList.add('visible');
     return;
@@ -629,7 +677,7 @@ function applyManualDraws() {
   const history = nums.map((n, i) => ({
     issueNumber: String(Date.now() - i),
     number: n,
-    color: numberToColor(n),
+    color: normalizeColorName(numberToColor(n)),
   }));
 
   const pred = buildPredictionFromHistory(history);
@@ -652,4 +700,10 @@ function clearManual() {
 
 startCountdown();
 setupFirebaseListeners();
+window.addEventListener('beforeunload', () => {
+  clearFirebaseTimers();
+  stopApiPolling();
+  if (gameStateRef) gameStateRef.off();
+  if (predictionRef) predictionRef.off();
+});
 ;

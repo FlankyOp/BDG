@@ -1,0 +1,30 @@
+# Python virtual environment
+bdg_predictor/venv/
+bdg_predictor/__pycache__/
+bdg_predictor/*.pyc
+
+# Node modules
+node_modules/
+
+# Python cache
+*.pyc
+__pycache__/
+
+# Environment files
+.env
+.env.local
+firebase-adminsdk.json
+bdg_predictor/firebase-adminsdk.json
+
+# Logs
+logs/
+bdg_predictor/logs/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Git
+.git/
+.gitignore

@@ -67,6 +67,25 @@
     .bg-green-violet { background: linear-gradient(135deg, var(--neon-green) 50%, var(--neon-violet) 50%); }
     .bg-red { background: var(--neon-red); }
     .bg-green { background: var(--neon-green); }
+    .pred-ball-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .pred-ball {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      font-size: 14px;
+      font-weight: 800;
+      color: #fff;
+      box-shadow: inset 0 -2px 4px rgba(0,0,0,0.45);
+      border: 1px solid rgba(255,255,255,0.18);
+    }
     .pred-conf-bar { width: 0%; }
     .timer-container { position: relative; width: 56px; height: 56px; }
     .timer-svg { transform: rotate(-90deg); width: 56px; height: 56px; }
@@ -171,6 +190,16 @@
           <div class="stat-box p-4 mt-4 text-left bg-gray-800/80 border-gray-700">
             <p class="text-xs text-gray-400 uppercase font-bold mb-1">Pattern Detected</p>
             <p id="pred-pattern" class="text-sm font-bold text-blue-400 font-mono">-</p>
+          </div>
+
+          <div class="stat-box p-4 mt-2 text-left bg-gray-800/80 border-gray-700">
+            <p class="text-xs text-gray-400 uppercase font-bold mb-1">Top 3 Predictions</p>
+            <p id="pred-model3" class="text-sm font-bold text-green-300 font-mono">-</p>
+          </div>
+
+          <div class="stat-box p-4 mt-2 text-left bg-gray-800/80 border-gray-700">
+            <p class="text-xs text-gray-400 uppercase font-bold mb-1">Sources</p>
+            <p id="pred-alt500" class="text-sm font-bold text-yellow-300 font-mono">-</p>
           </div>
 
           <div class="mt-4 bg-gray-800/50 p-4 rounded-lg border border-gray-700">
@@ -500,6 +529,14 @@
     return 'bg-green';
   }
 
+  function renderPredictionBalls(numbers) {
+    if (!Array.isArray(numbers) || !numbers.length) return '-';
+    const balls = numbers
+      .map((n) => `<span class="pred-ball ${getBallClass(n)}">${n}</span>`)
+      .join('');
+    return `<span class="pred-ball-row">${balls}</span>`;
+  }
+
   // UI Mode Switcher
   function setMode(mode) {
     currentGame = mode;
@@ -687,23 +724,65 @@
 
     const trend = projectUpcomingTrend(colors, sizes);
 
-    const freq500 = {}; const freq120 = {}; const freq30 = {};
+    const freq500 = {}; const freq50 = {}; const hot15 = {};
     nums.slice(0, 500).forEach(n => freq500[n] = (freq500[n] || 0) + 1);
-    nums.slice(0, 120).forEach(n => freq120[n] = (freq120[n] || 0) + 1);
-    nums.slice(0, 30).forEach(n => freq30[n] = (freq30[n] || 0) + 1);
+    nums.slice(0, 50).forEach(n => freq50[n] = (freq50[n] || 0) + 1);
+    nums.slice(0, 15).forEach(n => hot15[n] = (hot15[n] || 0) + 1);
 
-    let bestNum = 0;
-    let bestScore = -1;
+    // AI model pick (Markov sequence learner using last 500 draws context)
+    const seqAI = new SequenceAI(nums, 3);
+    const seqResult = seqAI.getTopPrediction(nums.slice(0, 10));
+
+    // MODEL ENGINE SCORE (Pattern + Color + Probability + Weighted memory)
+    const modelScores = [];
     for (let i = 0; i < 10; i++) {
-      let score = (freq500[i] || 0) * 1.0 + (freq120[i] || 0) * 2.2 + (freq30[i] || 0) * 3.6;
-      if (SIZE_MAP[i] === trend.nextSize) score *= 1.18;
-      if (baseColorOf(i) === trend.nextColor) score *= 1.12;
-      if (nums[0] === i) score *= 0.65;
-      if (score > bestScore) {
-        bestScore = score;
-        bestNum = i;
+      // 20-round weighted memory: last5=40%, next5=30%, next10=30%
+      const w20 =
+        nums.slice(0, 5).filter(n => n === i).length * 0.40 +
+        nums.slice(5, 10).filter(n => n === i).length * 0.30 +
+        nums.slice(10, 20).filter(n => n === i).length * 0.30;
+
+      const isOverdue = !nums.slice(0, 12).includes(i);
+      const overdueScore = isOverdue ? 1.0 : 0.0;
+      const hotScore = (hot15[i] || 0) / 15.0;
+      const recentFreq = (freq50[i] || 0) / 50.0;
+
+      const sizeMatch = SIZE_MAP[i] === trend.nextSize ? 1.0 : 0.0;
+      const colorMatch = baseColorOf(i) === trend.nextColor ? 1.0 : 0.0;
+      const patternMatch = (sizeMatch * 0.55) + (colorMatch * 0.45);
+
+      // Probability engine formula requested
+      const probability = (recentFreq * 0.4) + (overdueScore * 0.3) + (patternMatch * 0.3);
+
+      // Final blend (model-only side, no AI boost here)
+      const finalModelScore =
+        (patternMatch * 0.45) +
+        (colorMatch * 0.20) +
+        (probability * 0.20) +
+        (Math.min(1, w20 / 2.0) * 0.15) +
+        (hotScore * 0.05);
+
+      // Repeat penalty unless streak
+      if (nums[0] === i && !(nums[0] === nums[1] && nums[1] === nums[2])) {
+        modelScores.push({ number: i, score: finalModelScore * 0.72 });
+      } else {
+        modelScores.push({ number: i, score: finalModelScore });
       }
     }
+
+    modelScores.sort((a, b) => b.score - a.score);
+
+    // Keep only 3: two from prediction model + one from AI model.
+    const aiNumber = seqResult.number;
+    const modelTop = modelScores.filter((x) => x.number !== aiNumber).slice(0, 2);
+    const top3Mixed = [
+      { tag: 'MODEL', number: modelTop[0]?.number ?? modelScores[0]?.number ?? 0 },
+      { tag: 'MODEL', number: modelTop[1]?.number ?? modelScores[1]?.number ?? 1 },
+      { tag: 'AI', number: aiNumber },
+    ];
+
+    const bestNum = top3Mixed[0].number;
+    const bestScore = modelScores.find((x) => x.number === bestNum)?.score ?? modelScores[0]?.score ?? 0;
 
     const baseline = (nums.length || 1) * 0.45;
     const confRaw = (bestScore / baseline) * 100;
@@ -713,6 +792,7 @@
     activePrediction = {
       period: nextPeriodInt.toString(),
       number: bestNum,
+      numbers: top3Mixed.map((x) => x.number),
       size: SIZE_MAP[bestNum],
       color: COLOR_MAP[bestNum]
     };
@@ -732,6 +812,18 @@
     document.getElementById('pred-pattern').textContent = `UPCOMING: ${trend.label}`;
     document.getElementById('pred-conf').textContent = `${conf.toFixed(1)}%`;
     document.getElementById('pred-conf-bar').style.width = `${conf}%`;
+
+    const model3El = document.getElementById('pred-model3');
+    if (model3El) {
+      const nums3 = top3Mixed.slice(0, 3).map((x) => x.number);
+      model3El.innerHTML = `${renderPredictionBalls(nums3)}<span class="text-gray-400">${nums3.join(' | ')}</span>`;
+    }
+
+    const alt500El = document.getElementById('pred-alt500');
+    if (alt500El) {
+      const tags = top3Mixed.slice(0, 3).map((x) => `${x.tag}:${x.number}`);
+      alt500El.textContent = tags.join(' | ');
+    }
   }
 
   function renderStatsPanels() {
@@ -880,8 +972,12 @@
     const actBaseColor = COLOR_MAP[actualNum].includes("Red") ? "Red" : "Green";
     const predBaseColor = activePrediction.color.includes("Red") ? "Red" : "Green";
 
+    const predictedNums = Array.isArray(activePrediction.numbers)
+      ? activePrediction.numbers
+      : [activePrediction.number];
+
     const res = {
-      num: activePrediction.number === actualNum,
+      num: predictedNums.includes(actualNum),
       size: activePrediction.size === actSize,
       color: predBaseColor === actBaseColor
     };
@@ -947,6 +1043,85 @@
       historyCache = historyCache.slice(0, 50);
       persistSnapshotToFirebase();
       persistLatestEvaluationToGlobal(historyCache[0]);
+    }
+  }
+
+  // =============================================
+  // SEQUENCE AI — Markov 1/2/3-gram learner
+  // =============================================
+  class SequenceAI {
+    constructor(nums, maxContext = 3) {
+      this.maxContext = maxContext;
+      this.transitions = {};
+      this.freqCount = {};
+      this._train(nums);
+    }
+
+    _train(nums) {
+      nums.forEach(n => this.freqCount[n] = (this.freqCount[n] || 0) + 1);
+      for (let order = 1; order <= this.maxContext; order++) {
+        this.transitions[order] = {};
+        for (let i = order; i < nums.length; i++) {
+          const ctx = nums.slice(i - order, i).join(',');
+          if (!this.transitions[order][ctx]) this.transitions[order][ctx] = {};
+          const next = nums[i];
+          this.transitions[order][ctx][next] = (this.transitions[order][ctx][next] || 0) + 1;
+        }
+      }
+    }
+
+    _baseDistribution() {
+      const total = Object.values(this.freqCount).reduce((a, b) => a + b, 0) + 10;
+      const dist = {};
+      for (let i = 0; i < 10; i++) dist[i] = ((this.freqCount[i] || 0) + 1) / total;
+      return dist;
+    }
+
+    predictNext(recentContext) {
+      const ctx = recentContext.slice(-this.maxContext);
+      const orderWeights = [0.20, 0.30, 0.50];
+      const blended = {};
+      for (let i = 0; i < 10; i++) blended[i] = 0;
+
+      for (let order = 1; order <= this.maxContext && order <= ctx.length; order++) {
+        const key = ctx.slice(-order).join(',');
+        const table = (this.transitions[order] || {})[key] || {};
+        const tableTotal = Object.values(table).reduce((a, b) => a + b, 0) || 0;
+        const w = orderWeights[order - 1] || 0.33;
+        if (tableTotal > 0) {
+          for (let i = 0; i < 10; i++) blended[i] += w * ((table[i] || 0) / tableTotal);
+        } else {
+          const base = this._baseDistribution();
+          for (let i = 0; i < 10; i++) blended[i] += w * base[i];
+        }
+      }
+
+      // Normalize
+      let total = Object.values(blended).reduce((a, b) => a + b, 0) || 1;
+      for (let i = 0; i < 10; i++) blended[i] /= total;
+
+      // Immediate-repeat penalty (unless in a streak)
+      const lastNum = ctx[ctx.length - 1];
+      if (lastNum !== undefined) {
+        const isStreak = ctx.length >= 3 &&
+          ctx[ctx.length - 1] === ctx[ctx.length - 2] &&
+          ctx[ctx.length - 2] === ctx[ctx.length - 3];
+        if (!isStreak) blended[lastNum] *= 0.72;
+      }
+
+      // Re-normalize
+      total = Object.values(blended).reduce((a, b) => a + b, 0) || 1;
+      for (let i = 0; i < 10; i++) blended[i] /= total;
+      return blended;
+    }
+
+    getTopPrediction(recentContext) {
+      const scores = this.predictNext(recentContext);
+      let topNum = 0, topConf = 0;
+      for (let i = 0; i < 10; i++) {
+        if (scores[i] > topConf) { topConf = scores[i]; topNum = i; }
+      }
+      return { number: topNum, confidence: topConf, scores };
     }
   }
 

@@ -3,4 +3,11 @@
 
 requests>=2.28.0
 firebase-admin>=6.0.0
+typing_extensions>=4.8.0
+types-requests>=2.31.0
+
+# Deep sequence model — LSTM neural network
+# ~2 GB download on Windows (CPU build)
+# Optional: system runs fine without it (falls back to Markov chain)
+torch>=2.0.0
 

@@ -4,56 +4,110 @@ Provides utilities for testing and configuration management.
 """
 
 import logging
+import os
 from typing import Any, Dict, List
 # NOTE: Predictor and create_sample_data are imported lazily inside each
 # TestSuite method to avoid a circular import chain:
 #   probability_engine → config → predictor → probability_engine
 
 logger = logging.getLogger(__name__)
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _env_str(name: str, default: str) -> str:
+    value = os.getenv(name)
+    return value if value not in (None, "") else default
+
+
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value in (None, ""):
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class Config:
-    """Application configuration."""
+    """Application configuration with environment-variable overrides.
+
+    Non-obvious knobs:
+    - `MIN_WEIGHT_FLOOR`: lower bound applied before adaptive weight normalization.
+    - `SIZE_BALANCE_BOOST`: bonus when recent Big/Small distribution is skewed.
+    - `COLOR_BOOST`: color-match bonus for explicit color pattern alignment.
+    - `COLOR_BLEND_WEIGHT`: fraction of color score blended into total confidence.
+    """
     
     # API Settings
-    API_BASE_URL = "https://draw.ar-lottery01.com"
-    API_TIMEOUT = 10
+    API_BASE_URL = _env_str("BDG_API_BASE_URL", "https://draw.ar-lottery01.com")
+    API_TIMEOUT = _env_int("BDG_API_TIMEOUT", 10)
+    GAME_CODE = _env_str("BDG_GAME_CODE", "WinGo_1M")
     
     # Polling Settings
-    DEFAULT_POLLING_INTERVAL = 30  # seconds
-    DEFAULT_POLL_LIMIT = 10  # max runs
+    DEFAULT_POLLING_INTERVAL = _env_int("BDG_DEFAULT_POLLING_INTERVAL", 30)
+    DEFAULT_POLL_LIMIT = _env_int("BDG_DEFAULT_POLL_LIMIT", 10)
     
     # Pattern Detection
-    MIN_DRAWS_REQUIRED = 10
-    PREFERRED_DRAWS = 30
-    HISTORY_DRAWS_LIMIT = 500
+    MIN_DRAWS_REQUIRED = _env_int("BDG_MIN_DRAWS_REQUIRED", 10)
+    PREFERRED_DRAWS = _env_int("BDG_PREFERRED_DRAWS", 30)
+    HISTORY_DRAWS_LIMIT = _env_int("BDG_HISTORY_DRAWS_LIMIT", 500)
     
     # Logging
     LOG_LEVEL = logging.INFO
     LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    LOG_DIR = "logs"
+    LOG_DIR = _env_str("BDG_LOG_DIR", "logs")
     
     # Confidence Thresholds
-    HIGH_CONFIDENCE = 0.75
-    MEDIUM_CONFIDENCE = 0.50
-    LOW_CONFIDENCE = 0.30
+    HIGH_CONFIDENCE = _env_float("BDG_HIGH_CONFIDENCE", 0.75)
+    MEDIUM_CONFIDENCE = _env_float("BDG_MEDIUM_CONFIDENCE", 0.50)
+    LOW_CONFIDENCE = _env_float("BDG_LOW_CONFIDENCE", 0.30)
     
     # Weights for probability calculation
-    WEIGHT_TREND = 0.30
-    WEIGHT_FREQUENCY = 0.25
-    WEIGHT_CYCLE = 0.20
-    WEIGHT_STREAK = 0.15
-    WEIGHT_NOISE = 0.10
+    WEIGHT_TREND = _env_float("BDG_WEIGHT_TREND", 0.30)
+    WEIGHT_FREQUENCY = _env_float("BDG_WEIGHT_FREQUENCY", 0.25)
+    WEIGHT_CYCLE = _env_float("BDG_WEIGHT_CYCLE", 0.20)
+    WEIGHT_STREAK = _env_float("BDG_WEIGHT_STREAK", 0.15)
+    WEIGHT_NOISE = _env_float("BDG_WEIGHT_NOISE", 0.10)
+    WEIGHT_SEQUENCE = _env_float("BDG_WEIGHT_SEQUENCE", 0.20)
 
     # Self-learning (adaptive weight tuning)
-    ENABLE_SELF_LEARNING = True
-    LEARNING_RATE = 0.08
-    MIN_WEIGHT_FLOOR = 0.05
+    ENABLE_SELF_LEARNING = _env_bool("BDG_ENABLE_SELF_LEARNING", True)
+    LEARNING_RATE = _env_float("BDG_LEARNING_RATE", 0.08)
+    MIN_WEIGHT_FLOOR = _env_float("BDG_MIN_WEIGHT_FLOOR", 0.05)
+
+    # Sequence learner (Markov)
+    SEQUENCE_LOOKBACK_DRAWS = _env_int("BDG_SEQUENCE_LOOKBACK_DRAWS", HISTORY_DRAWS_LIMIT)
+    SEQUENCE_MAX_CONTEXT = _env_int("BDG_SEQUENCE_MAX_CONTEXT", 3)
+
+    # Deep sequence model (LSTM — requires: pip install torch)
+    LSTM_ENABLED = _env_bool("BDG_LSTM_ENABLED", True)
+    LSTM_MODEL_DIR = _env_str("BDG_LSTM_MODEL_DIR", os.path.join(_BASE_DIR, "models"))
+    LSTM_MODEL_PATH = os.path.join(LSTM_MODEL_DIR, "sequence_lstm.pt")
+    WEIGHT_LSTM = _env_float("BDG_WEIGHT_LSTM", 0.25)
     
     # Boost factors
-    SIZE_BALANCE_BOOST = 0.15  # boost by 15%
-    COLOR_BOOST = 0.18  # boost by 18%
-    MIN_STREAK_LENGTH = 3  # for reversal detection
+    SIZE_BALANCE_BOOST = _env_float("BDG_SIZE_BALANCE_BOOST", 0.15)
+    COLOR_BOOST = _env_float("BDG_COLOR_BOOST", 0.18)
+    COLOR_BLEND_WEIGHT = _env_float("BDG_COLOR_BLEND_WEIGHT", 0.05)
+    MIN_STREAK_LENGTH = _env_int("BDG_MIN_STREAK_LENGTH", 3)
 
 
 class TestSuite:
@@ -120,7 +174,7 @@ class TestSuite:
                 "detected_pattern": detected,
                 "pattern_strength": f"{strength:.0%}",
                 "expected": test["expected_pattern"],
-                "status": "PASS" if detected == test["expected_pattern"] else "INFO"
+                "status": "PASS" if detected == test["expected_pattern"] else "FAIL"
             }
             results.append(result)
         
@@ -212,7 +266,7 @@ class TestSuite:
         return test_cases
     
     @staticmethod
-    def run_all_tests():
+    def run_all_tests() -> None:
         """Run all tests."""
         print("\n" + "="*70)
         print(" "*15 + "BDG PREDICTION ENGINE - COMPREHENSIVE TEST SUITE")
@@ -223,16 +277,25 @@ class TestSuite:
             TestSuite.test_size_color_mapping()
             
             # Test 2: Pattern Detection
-            TestSuite.test_pattern_detection()
+            pattern_results = TestSuite.test_pattern_detection()
             
             # Test 3: Cycle Detection
             TestSuite.test_cycle_detection()
             
             # Test 4: Probability Ranking
-            TestSuite.test_probability_ranking()
+            rankings = TestSuite.test_probability_ranking()
             
             # Test 5: Single Prediction
-            TestSuite.test_single_prediction()
+            prediction = TestSuite.test_single_prediction()
+
+            failures = [result for result in pattern_results if result["status"] != "PASS"]
+            if len(rankings) != 10:
+                failures.append({"test_case": "Probability Ranking", "status": "FAIL"})
+            if not isinstance(prediction, dict) or "primary_prediction" not in prediction:
+                failures.append({"test_case": "Single Prediction", "status": "FAIL"})
+
+            if failures:
+                raise AssertionError(f"{len(failures)} test checks failed")
             
             print("\n" + "="*70)
             print("ALL TESTS COMPLETED SUCCESSFULLY ✓")

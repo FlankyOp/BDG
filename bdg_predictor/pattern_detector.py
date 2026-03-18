@@ -6,6 +6,7 @@ Analyzes game patterns for size, color, streaks, and cycles.
 import logging
 from typing import Any, List, Dict
 from collections import Counter
+from config import Config
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,101 @@ class ColorMapper:
     def numbers_to_colors(numbers: List[int]) -> List[str]:
         """Convert list of numbers to colors."""
         return [ColorMapper.get_color(n) for n in numbers]
+
+
+class LLMSequenceAI:
+    """Deterministic token-style sequence learner trained on recent draw history.
+
+    This is not a true large language model. It applies the same next-token idea
+    to draw numbers by learning 1-gram to N-gram transitions from the last API
+    history window and then blending those sequence signals with a global prior.
+    """
+
+    def __init__(self, recent_draws: List[int], max_context: int = Config.SEQUENCE_MAX_CONTEXT):
+        self.draws = list(reversed(recent_draws[:Config.SEQUENCE_LOOKBACK_DRAWS]))
+        self.max_context = max(1, min(max_context, 5))
+        self.transitions: Dict[int, Dict[tuple[int, ...], Counter[int]]] = {
+            order: {} for order in range(1, self.max_context + 1)
+        }
+        self.frequencies: Counter[int] = Counter()
+        self._train()
+
+    def _train(self) -> None:
+        """Train the sequence model on chronological draws."""
+        for index, number in enumerate(self.draws):
+            self.frequencies[number] += 1
+            for order in range(1, self.max_context + 1):
+                if index < order:
+                    continue
+
+                context = tuple(self.draws[index - order:index])
+                bucket = self.transitions[order].setdefault(context, Counter())
+                bucket[number] += 1
+
+    def _base_distribution(self) -> Dict[int, float]:
+        total = sum(self.frequencies.values())
+        if total <= 0:
+            return {number: 0.1 for number in range(10)}
+
+        # Laplace smoothing prevents zero-probability dead ends.
+        denominator = total + 10
+        return {
+            number: (self.frequencies.get(number, 0) + 1) / denominator
+            for number in range(10)
+        }
+
+    def predict_next(self, recent_context: List[int]) -> Dict[int, float]:
+        """Return normalized next-number probabilities for the newest-first context."""
+        scores = self._base_distribution()
+        if not recent_context:
+            return scores
+
+        normalized_context = [int(number) for number in recent_context[:self.max_context]]
+        weight_plan = {
+            1: 0.20,
+            2: 0.30,
+            3: 0.50,
+            4: 0.60,
+            5: 0.70,
+        }
+
+        for order in range(1, min(len(normalized_context), self.max_context) + 1):
+            context = tuple(reversed(normalized_context[:order]))
+            transitions = self.transitions[order].get(context)
+            if not transitions:
+                continue
+
+            total = sum(transitions.values())
+            if total <= 0:
+                continue
+
+            blend_weight = weight_plan.get(order, 0.50)
+            for number, count in transitions.items():
+                scores[number] += (count / total) * blend_weight
+
+        # Penalize immediate repeats unless the last 3 draws form a streak.
+        if normalized_context:
+            latest = normalized_context[0]
+            is_short_streak = len(normalized_context) >= 3 and len(set(normalized_context[:3])) == 1
+            if not is_short_streak:
+                scores[latest] *= 0.72
+
+        total_score = sum(scores.values()) or 1.0
+        return {number: score / total_score for number, score in scores.items()}
+
+    def get_model_summary(self, recent_context: List[int]) -> Dict[str, Any]:
+        """Return sequence diagnostics useful for downstream scoring and logging."""
+        probabilities = self.predict_next(recent_context)
+        ranked = sorted(probabilities.items(), key=lambda item: item[1], reverse=True)
+
+        return {
+            "scores": {number: probabilities.get(number, 0.0) for number in range(10)},
+            "top_prediction": ranked[0][0] if ranked else None,
+            "top_confidence": ranked[0][1] if ranked else 0.0,
+            "context": recent_context[:self.max_context],
+            "trained_draws": len(self.draws),
+            "max_context": self.max_context,
+        }
 
 
 class PatternDetector:
@@ -401,10 +497,25 @@ class PatternDetector:
     
     def analyze_all_patterns(self) -> Dict[str, Any]:
         """Run all pattern detections and return summary."""
+        # Try to use the trained LSTM model first; fall back to Markov chain.
+        try:
+            from sequence_model import get_global_model  # lazy — avoids import cycle
+            deep_model = get_global_model()
+            if deep_model.is_ready:
+                seq_summary = deep_model.get_summary(self.draws[:20])
+                seq_summary["source"] = "lstm"
+            else:
+                raise RuntimeError("LSTM not ready")
+        except Exception:
+            markov = LLMSequenceAI(self.draws)
+            seq_summary = markov.get_model_summary(self.draws[:Config.SEQUENCE_MAX_CONTEXT])
+            seq_summary["source"] = "markov"
+
         return {
             "size_patterns": self.detect_size_pattern(),
             "color_patterns": self.detect_color_pattern(),
             "cycles": self.detect_cycles(),
+            "sequence_patterns": seq_summary,
             "number_frequency": self.get_number_frequency(),
             "size_distribution": self.get_size_distribution(),
             "recent_draws": self.draws,
@@ -413,4 +524,4 @@ class PatternDetector:
         }
 
 
-__all__ = ["PatternDetector", "SizeMapper", "ColorMapper"]
+__all__ = ["PatternDetector", "SizeMapper", "ColorMapper", "LLMSequenceAI"]

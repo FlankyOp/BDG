@@ -13,13 +13,55 @@ build/
 .venv/
 venv/
 env/
+
+# Firebase & Secrets - NEVER commit these
+bdg_predictor/firebase-adminsdk.json
+firebase-adminsdk.json
 .env
+.env.local
+.env.production
+.env.*.local
+*.key
+*.pem
+
+# Credentials
+credentials.json
+secret.json
+secrets/
 
 # Logs & runtime data
 logs/
 *.log
-*.json
+predictions_*.json
+adaptive_weights.json
 adaptive_profile*.json
+
+# Models (large files)
+bdg_predictor/models/*.pt
+*.pt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Kombai editor
+.kombai/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary
+*.tmp
+*.temp
+*_backup*
+.cache/
 
 # OS
 .DS_Store

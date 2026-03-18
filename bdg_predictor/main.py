@@ -8,12 +8,20 @@ import logging
 import time
 import json
 import os
+import shutil
+import glob
 from typing import Any, Dict, Optional, List, cast
 from datetime import datetime
 from data_fetcher import DataFetcher, create_sample_data
+from pattern_detector import ColorMapper, SizeMapper
 from predictor import Predictor
 from config import Config
 import firebase_client
+try:
+    from sequence_model import get_global_model as _get_lstm_model
+    _LSTM_IMPORT_OK = True
+except Exception:
+    _LSTM_IMPORT_OK = False
 
 # Configure logging
 LOG_DIR = "logs"
@@ -49,27 +57,139 @@ class PredictionEngine:
         self.prediction_history: List[Dict[str, Any]] = []
         self.results_file = os.path.join(LOG_DIR, f"predictions_{datetime.now().strftime('%Y%m%d')}.json")
         self.learning_file = os.path.join(LOG_DIR, "adaptive_weights.json")
+        self.game_code = Config.GAME_CODE
         self.learning_profile = self._load_learning_profile()
         self.pending_feedback: Optional[Dict[str, Any]] = None
         self.pending_status_eval: Optional[Dict[str, Any]] = None
+        self._firestore_lstm_bootstrapped: bool = False
 
     @staticmethod
     def _number_to_color(number: int) -> str:
-        if number == 5:
-            return "Violet"
-        if number in (1, 3, 7, 9):
-            return "Green"
-        return "Red"
+        return ColorMapper.get_color(number)
 
     @staticmethod
     def _number_to_size(number: int) -> str:
-        return "Big" if number >= 5 else "Small"
+        return SizeMapper.get_size(number)
 
     @staticmethod
     def _color_tokens(color_value: Any) -> List[str]:
         raw = str(color_value or "").replace("|", ",").replace("/", ",")
         parts = [p.strip().title() for p in raw.split(",") if p.strip()]
         return parts if parts else ["Red"]
+
+    def _fetch_latest_draw_rows(self) -> List[Dict[str, Any]]:
+        """Fetch the latest normalized draw rows once for the active game code."""
+        if self.use_sample_data:
+            logger.info("Using sample data (API disabled)")
+            sample = create_sample_data()
+            base_period = int(datetime.now().strftime("%Y%m%d%H%M%S"))
+            return [
+                {
+                    "period": str(base_period - index),
+                    "number": number,
+                    "color": self._number_to_color(number),
+                }
+                for index, number in enumerate(sample)
+            ]
+
+        data = self.data_fetcher.fetch_past_draws(game_code=self.game_code)
+        if not data:
+            return []
+
+        return self.data_fetcher.extract_draws(data)
+
+    @staticmethod
+    def _select_period_rows(rows: List[Dict[str, Any]], period: Optional[str]) -> List[Dict[str, Any]]:
+        if not rows or not period:
+            return rows
+
+        for index, row in enumerate(rows):
+            if str(row.get("period")) == str(period):
+                return rows[index:]
+
+        return rows
+
+    def _safe_firebase_push(self, operation_name: str, func: Any, *args: Any, **kwargs: Any) -> None:
+        try:
+            func(*args, **kwargs)
+        except Exception as exc:
+            logger.warning("Firebase %s failed: %s", operation_name, exc)
+
+    def _backup_corrupt_results_file(self) -> None:
+        if not os.path.exists(self.results_file):
+            return
+
+        backup_file = f"{self.results_file}.corrupt_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        try:
+            shutil.copy2(self.results_file, backup_file)
+            logger.warning("Backed up corrupted history file to %s", backup_file)
+        except Exception as backup_exc:
+            logger.warning("Failed to back up corrupted history file: %s", backup_exc)
+
+    def _load_saved_predictions(self) -> List[Dict[str, Any]]:
+        if not os.path.exists(self.results_file):
+            return []
+
+        try:
+            with open(self.results_file, "r") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                return cast(List[Dict[str, Any]], loaded)
+        except Exception as exc:
+            logger.warning("Failed to load saved predictions: %s", exc)
+            self._backup_corrupt_results_file()
+
+        return []
+
+    @staticmethod
+    def _safe_int(value: Any) -> Optional[int]:
+        try:
+            parsed = int(value)
+            return parsed if 0 <= parsed <= 9 else None
+        except (TypeError, ValueError):
+            return None
+
+    def _load_prediction_log_draws(self, max_entries: int = 4000) -> List[int]:
+        """Load pseudo-draw memory from saved prediction logs (newest-first).
+
+        These are not guaranteed actual outcomes, but they preserve rich historical
+        model context and confidence evolution. We use them as a low-priority
+        auxiliary memory source during LSTM cold-start.
+        """
+        log_files = sorted(glob.glob(os.path.join(LOG_DIR, "predictions_*.json")))
+        if not log_files:
+            return []
+
+        chronological_numbers: List[int] = []
+        for path in log_files:
+            try:
+                with open(path, "r") as f:
+                    payload = json.load(f)
+            except Exception as exc:
+                logger.debug("Skipping prediction log %s: %s", path, exc)
+                continue
+
+            if not isinstance(payload, list):
+                continue
+
+            for row in payload:
+                if not isinstance(row, dict):
+                    continue
+
+                primary_block = row.get("primary_prediction", {})
+                if not isinstance(primary_block, dict):
+                    continue
+
+                primary_number = self._safe_int(primary_block.get("number"))
+                if primary_number is not None:
+                    chronological_numbers.append(primary_number)
+
+        if not chronological_numbers:
+            return []
+
+        # Return newest-first to match the rest of the pipeline.
+        newest_first = list(reversed(chronological_numbers))
+        return newest_first[:max_entries]
 
     def _evaluate_pending_status(
         self,
@@ -82,7 +202,12 @@ class PredictionEngine:
             return None
 
         payload = self.pending_status_eval
-        predicted = cast(Dict[str, Dict[str, Any]], payload["predicted"]) 
+        predicted_raw = payload.get("predicted", {})
+        if not predicted_raw:
+            self.pending_status_eval = None
+            return None
+
+        predicted = cast(Dict[str, Dict[str, Any]], predicted_raw)
         primary = predicted.get("primary", {})
         predicted_number = int(primary.get("number", 0))
         predicted_color = str(primary.get("color", "Red"))
@@ -103,7 +228,7 @@ class PredictionEngine:
                 "size": "HIT" if c_size == actual_size else "MISS",
             }
 
-        evaluation = {
+        evaluation: Dict[str, Any] = {
             "target_period": payload.get("target_period"),
             "actual_period": actual_period,
             "predicted": predicted,
@@ -127,64 +252,35 @@ class PredictionEngine:
     
     # ==================== DATA RETRIEVAL ====================
     
-    def fetch_latest_draws(self, period: str) -> Optional[List[int]]:
+    def fetch_latest_draws(self, period: Optional[str] = None, latest_rows: Optional[List[Dict[str, Any]]] = None) -> Optional[List[int]]:
         """
         Fetch latest game draws.
         
         Args:
-            period: Game period ID
+            period: Optional game period ID within the fetched history window
+            latest_rows: Optional prefetched normalized rows to avoid duplicate API calls
             
         Returns:
             List of latest draw numbers or None on error
         """
-        if self.use_sample_data:
-            logger.info("Using sample data (API disabled)")
-            return create_sample_data()
-        
         try:
-            data = self.data_fetcher.fetch_past_draws(period)
-            if not data:
+            draws = latest_rows if latest_rows is not None else self._fetch_latest_draw_rows()
+            if not draws:
                 logger.warning("Failed to fetch data from API, using sample data")
                 return create_sample_data()
 
-            draws = self.data_fetcher.extract_draws(data)
-            if not draws:
-                logger.warning("No draws extracted, using sample data")
-                return create_sample_data()
+            selected_rows = self._select_period_rows(draws, period)
+            if period and selected_rows is draws:
+                logger.warning("Requested period %s not present in latest history window; using newest data", period)
 
-            # Sort by period descending and extract numbers directly from the
-            # already-fetched draws — avoids a redundant second API call that
-            # get_latest_draws() would otherwise trigger internally.
-            try:
-                draws.sort(
-                    key=lambda x: int(str(x["period"]).replace("-", "")),
-                    reverse=True
-                )
-            except (ValueError, TypeError):
-                pass
-            numbers = [int(d["number"]) for d in draws[:Config.HISTORY_DRAWS_LIMIT]]
+            numbers = [int(d["number"]) for d in selected_rows[:Config.HISTORY_DRAWS_LIMIT]]
             return numbers if numbers else create_sample_data()
-            
+
         except Exception as e:
             logger.error(f"Error fetching draws: {e}")
             return create_sample_data()
     
     def run_single_prediction(self, period: Optional[str] = None) -> Optional[Dict[str, Any]]:
-
-        if period is None:
-            # Fetch the latest draw to get the current period
-            latest_draws_data = self.data_fetcher.fetch_past_draws()
-            if not latest_draws_data:
-                logger.error("Could not fetch latest draws data.")
-                return None
-            
-            latest_draws = self.data_fetcher.extract_draws(latest_draws_data)
-            if not latest_draws:
-                logger.error("Could not extract latest draws.")
-                return None
-
-            period = latest_draws[0]["period"]
-            logger.info(f"Using latest period from API: {period}")
         """
         Run a single prediction.
         
@@ -196,39 +292,32 @@ class PredictionEngine:
         """
         logger.info("Generating single prediction...")
 
-        # Fetch the latest draw to get the current period
-        latest_draws_data = self.data_fetcher.fetch_past_draws()
-        if not latest_draws_data:
-            logger.error("Could not fetch latest draws data.")
-            return None
-        
-        latest_draws = self.data_fetcher.extract_draws(latest_draws_data)
+        latest_draws = self._fetch_latest_draw_rows()
         if not latest_draws:
-            logger.error("Could not extract latest draws.")
+            logger.error("Could not fetch latest draws.")
             return None
 
-        period_str = latest_draws[0]["period"]
+        selected_rows = self._select_period_rows(latest_draws, period)
+        current_row = selected_rows[0] if selected_rows else latest_draws[0]
+        period_str = current_row["period"]
         if period_str is None:
             logger.error("Could not extract period from latest draws.")
             return None
         logger.info(f"Using latest period from API: {period_str}")
         
-        # Fetch draws
-        draws = self.fetch_latest_draws(period_str)
+        draws = self.fetch_latest_draws(period_str, latest_rows=latest_draws)
         if not draws or len(draws) < 10:
             logger.error("Insufficient draw data")
             return None
 
-        current_game_code = "WinGo_1M"
-
         # Evaluate previous prediction against the latest completed draw.
         hit_miss_status = self._evaluate_pending_status(
-            actual_number=draws[0],
-            actual_period=str(period_str),
+            actual_number=int(latest_draws[0]["number"]),
+            actual_period=str(latest_draws[0]["period"]),
             actual_color_value=latest_draws[0].get("color"),
         )
         if hit_miss_status:
-            firebase_client.push_hit_miss_status(current_game_code, hit_miss_status)
+            self._safe_firebase_push("push_hit_miss_status", firebase_client.push_hit_miss_status, self.game_code, hit_miss_status)
             logger.info(
                 "Hit/Miss | Number: %s | Color: %s | Size: %s",
                 hit_miss_status["status"]["number"],
@@ -238,8 +327,61 @@ class PredictionEngine:
 
         # Use the most recent completed number as feedback for the previous prediction.
         if Config.ENABLE_SELF_LEARNING:
-            self._apply_feedback(actual_number=draws[0])
-        
+            self._apply_feedback(actual_number=int(latest_draws[0]["number"]))
+
+        # Incremental LSTM training on the latest draw window.
+        if _LSTM_IMPORT_OK and Config.LSTM_ENABLED:
+            try:
+                lstm = _get_lstm_model()
+                if not lstm.model_available:
+                    pass  # torch not installed — silent no-op
+                elif not lstm.is_ready and not self._firestore_lstm_bootstrapped:
+                    # Cold-start memory blend:
+                    # 1) latest API draws (most trustworthy + freshest)
+                    # 2) Firestore historical actual draws
+                    # 3) detailed prediction logs (auxiliary long memory)
+                    fs_draws = firebase_client.fetch_firestore_history(limit=5000)
+                    log_draws = self._load_prediction_log_draws(max_entries=3000)
+
+                    combined_train_draws: List[int] = []
+                    combined_train_draws.extend(draws)
+                    if fs_draws:
+                        combined_train_draws.extend(fs_draws)
+                    if log_draws:
+                        combined_train_draws.extend(log_draws)
+
+                    # Keep a bounded memory window for stable CPU training time.
+                    combined_train_draws = combined_train_draws[:8000]
+
+                    logger.info(
+                        "[LSTM] Cold-start memory: API=%d + Firestore=%d + Logs=%d => train=%d",
+                        len(draws), len(fs_draws), len(log_draws), len(combined_train_draws),
+                    )
+                    lstm.train_full(combined_train_draws if combined_train_draws else draws)
+                    self._firestore_lstm_bootstrapped = True
+                else:
+                    lstm.update(draws)
+                    self._firestore_lstm_bootstrapped = True
+            except Exception as _lstm_exc:
+                logger.warning("[LSTM] Training step skipped: %s", _lstm_exc)
+
+        # Persist this draw result to Firestore bdg_history for future training.
+        # Always write to Firebase (for model training via Colab/notebook later)
+        if latest_draws:
+            try:
+                _latest = latest_draws[0]
+                _num = int(_latest["number"])
+                self._safe_firebase_push(
+                    "push_draw_to_firestore",
+                    firebase_client.push_draw_to_firestore,
+                    period=str(_latest["period"]),
+                    number=_num,
+                    color=ColorMapper.get_color(_num),
+                    size=SizeMapper.get_size(_num),
+                )
+            except Exception as _fs_exc:
+                logger.debug("[Firestore] Draw write skipped: %s", _fs_exc)
+
         # Generate prediction
         predictor = Predictor(draws, period_str, weight_profile=self.learning_profile)
         prediction = predictor.generate_prediction()
@@ -247,7 +389,7 @@ class PredictionEngine:
 
         self._capture_pending_feedback(predictor, prediction)
         alternative = prediction.get("alternative_prediction") or prediction["primary_prediction"]
-        backup = prediction.get("strong_possibility") or alternative
+        backup = prediction.get("backup_prediction") or prediction.get("strong_possibility") or alternative
         self.pending_status_eval = {
             "target_period": prediction.get("next_period"),
             "predicted": {
@@ -273,15 +415,14 @@ class PredictionEngine:
         self.prediction_history.append(prediction)
         self._save_prediction(prediction)
         
-        # Determine current game config to match front-end
-        # Here we just default to WinGo_1M, but ideally we'd pass it in if it's dynamic
-        # Push state and prediction to Firebase
-        firebase_client.push_game_state(
-            current_game_code, 
-            live_data={"current": {"issueNumber": period_str, "endTime": int(time.time() * 1000) + 60000}, "next": {"issueNumber": prediction["next_period"]}}, 
-            history_data=self._get_recent_history(period_str)
+        self._safe_firebase_push(
+            "push_game_state",
+            firebase_client.push_game_state,
+            self.game_code,
+            live_data={"current": {"issueNumber": period_str, "endTime": int(time.time() * 1000) + 60000}, "next": {"issueNumber": prediction["next_period"]}},
+            history_data=self._get_recent_history(period_str, latest_rows=latest_draws),
         )
-        firebase_client.push_prediction(current_game_code, prediction)
+        self._safe_firebase_push("push_prediction", firebase_client.push_prediction, self.game_code, prediction)
         
         return prediction
 
@@ -294,6 +435,7 @@ class PredictionEngine:
             "cycle": Config.WEIGHT_CYCLE,
             "streak": Config.WEIGHT_STREAK,
             "noise": Config.WEIGHT_NOISE,
+            "sequence": Config.WEIGHT_SEQUENCE,
         }
 
     def _normalize_weights(self, profile: Dict[str, float]) -> Dict[str, float]:
@@ -336,7 +478,8 @@ class PredictionEngine:
     def _capture_pending_feedback(self, predictor: Predictor, prediction: Dict[str, Any]) -> None:
         primary = int(prediction["primary_prediction"]["number"])
         alt = int(prediction["alternative_prediction"]["number"]) if prediction.get("alternative_prediction") else primary
-        backup = int(prediction["strong_possibility"]["number"]) if prediction.get("strong_possibility") else alt
+        backup_prediction = prediction.get("backup_prediction") or prediction.get("strong_possibility")
+        backup = int(backup_prediction["number"]) if backup_prediction else alt
 
         self.pending_feedback = {
             "primary": primary,
@@ -377,7 +520,7 @@ class PredictionEngine:
             comp = components.get(number, {})
             for factor, value in comp.items():
                 if factor in updated:
-                    updated[factor] = updated[factor] + learning_rate * signal * float(value)
+                    updated[factor] = updated[factor] + learning_rate * signal * value
 
         self.learning_profile = self._normalize_weights(updated)
         self._save_learning_profile()
@@ -404,9 +547,8 @@ class PredictionEngine:
                 run_count += 1
                 logger.info(f"Poll #{run_count} - {datetime.now()}")
                 
-                # Run prediction
-                period = f"{datetime.now().strftime('%Y%m%d%H%M%S')}{str(run_count).zfill(4)}"
-                self.run_single_prediction(period)
+                # Run prediction against the latest available period.
+                self.run_single_prediction()
                 
                 # Log summary
                 logger.info(f"Waiting {interval_seconds} seconds for next poll...")
@@ -427,18 +569,9 @@ class PredictionEngine:
     def _save_prediction(self, prediction: Dict[str, Any]) -> None:
         """Save prediction to JSON file."""
         try:
-            # Load existing predictions
-            existing: List[Dict[str, Any]] = []
-            if os.path.exists(self.results_file):
-                with open(self.results_file, 'r') as f:
-                    loaded = json.load(f)
-                    if isinstance(loaded, list):
-                        existing = cast(List[Dict[str, Any]], loaded)
-            
-            # Append new prediction
+            existing = self._load_saved_predictions()
             existing.append(prediction)
-            
-            # Save
+
             with open(self.results_file, 'w') as f:
                 json.dump(existing, f, indent=2)
             
@@ -446,14 +579,24 @@ class PredictionEngine:
             
         except Exception as e:
             logger.error(f"Error saving prediction: {e}")
+            self._backup_corrupt_results_file()
+
+            if os.path.exists(self.results_file):
+                backup_file = f"{self.results_file}.corrupt_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+                try:
+                    shutil.copy2(self.results_file, backup_file)
+                    logger.warning("Backed up corrupted history file to %s", backup_file)
+                except Exception as backup_exc:
+                    logger.warning("Failed to back up corrupted history file: %s", backup_exc)
     
-    def _get_recent_history(self, period: Optional[str]) -> List[Dict[str, Any]]:
+    def _get_recent_history(self, period: Optional[str], latest_rows: Optional[List[Dict[str, Any]]] = None) -> List[Dict[str, Any]]:
         """Safely get recent history draws, handling None cases."""
         if period is None:
             logger.warning("No period for _get_recent_history")
             return []
-        data = self.data_fetcher.fetch_past_draws(period)
-        return self.data_fetcher.extract_draws(data) if data is not None else []
+
+        rows = latest_rows if latest_rows is not None else self._fetch_latest_draw_rows()
+        return self._select_period_rows(rows, period)
 
     def _print_session_summary(self) -> None:
         """Print summary of polling session."""
@@ -477,11 +620,12 @@ class PredictionEngine:
         Args:
             num_predictions: Number of recent predictions to analyze
         """
-        if not self.prediction_history:
+        history = self._load_saved_predictions() or self.prediction_history
+        if not history:
             logger.warning("No prediction history available")
             return
         
-        recent = self.prediction_history[-num_predictions:]
+        recent = history[-num_predictions:]
         
         print("\n" + "="*60)
         print("         RECENT PREDICTIONS ANALYSIS")
@@ -505,8 +649,9 @@ class PredictionEngine:
             filename = f"bdg_predictions_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
         
         try:
+            export_data = self._load_saved_predictions() or self.prediction_history
             with open(filename, 'w') as f:
-                json.dump(self.prediction_history, f, indent=2)
+                json.dump(export_data, f, indent=2)
             
             logger.info(f"Predictions exported to {filename}")
             print(f"\nPredictions exported to: {filename}")
@@ -529,6 +674,20 @@ def print_menu() -> None:
     print("="*60)
 
 
+def prompt_polling_interval() -> int:
+    """Prompt until a valid positive polling interval is entered."""
+    while True:
+        raw_value = input("Enter interval in seconds: ").strip()
+        try:
+            interval = int(raw_value)
+            if interval > 0:
+                return interval
+        except ValueError:
+            pass
+
+        print("Invalid interval. Please enter a positive whole number.")
+
+
 def main():
     """Main entry point."""
     logger.info("BDG Game Prediction Engine started")
@@ -542,7 +701,7 @@ def main():
     
     use_sample = "--sample" in sys.argv or "-s" in sys.argv
     continuous = "--continuous" in sys.argv or "-c" in sys.argv
-    interval  = 30
+    interval = Config.DEFAULT_POLLING_INTERVAL
     max_runs: Optional[int] = None
 
     # Parse --interval=N and --max-runs=N
@@ -551,7 +710,7 @@ def main():
             try:
                 interval = int(arg.split("=")[1])
             except ValueError:
-                logger.warning("Invalid interval, using default 30s")
+                logger.warning("Invalid interval, using default %ss", Config.DEFAULT_POLLING_INTERVAL)
         elif arg.startswith("--max-runs="):
             try:
                 max_runs = int(arg.split("=")[1])
@@ -580,14 +739,10 @@ def main():
             engine.run_continuous_polling(interval_seconds=30, max_runs=None)
         
         elif choice == "3":
-            try:
-                custom_interval = int(input("Enter interval in seconds: ").strip())
-                print(f"\nStarting continuous polling ({custom_interval}s interval)...")
-                print("Press Ctrl+C to stop.\n")
-                engine.run_continuous_polling(interval_seconds=custom_interval, max_runs=None)
-            except ValueError:
-                print("Invalid interval. Using default 30 seconds.")
-                engine.run_continuous_polling(interval_seconds=30, max_runs=None)
+            custom_interval = prompt_polling_interval()
+            print(f"\nStarting continuous polling ({custom_interval}s interval)...")
+            print("Press Ctrl+C to stop.\n")
+            engine.run_continuous_polling(interval_seconds=custom_interval, max_runs=None)
         
         elif choice == "4":
             print("\nRecent predictions:")
