@@ -39,6 +39,30 @@ fi
 echo "✓ All dependencies installed"
 echo ""
 
+# Dashboard mode: launch model API and open HTML UI
+if [ "$1" = "--dashboard" ]; then
+    echo "Starting BDG dashboard mode..."
+    echo "Launching local model API on http://127.0.0.1:8787"
+    python3 model_api_server.py --host 127.0.0.1 --port 8787 &
+    MODEL_API_PID=$!
+
+    # Give server a moment to boot before opening UI
+    sleep 2
+
+    echo "Opening dashboard in your default browser..."
+    if command -v xdg-open &> /dev/null; then
+        xdg-open index.html >/dev/null 2>&1 || true
+    elif command -v open &> /dev/null; then
+        open index.html >/dev/null 2>&1 || true
+    fi
+
+    echo ""
+    echo "Dashboard started. Press Ctrl+C to stop the model API."
+    trap 'kill "$MODEL_API_PID" 2>/dev/null' EXIT
+    wait "$MODEL_API_PID"
+    exit 0
+fi
+
 # Run the main program
 echo "Starting BDG Prediction Engine..."
 echo ""

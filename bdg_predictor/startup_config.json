@@ -1,0 +1,42 @@
+{
+  "environment": "development",
+  "debug_mode": true,
+  "servers": {
+    "backend": {
+      "host": "127.0.0.1",
+      "port": 8787,
+      "name": "BDG Prediction API Server",
+      "module": "model_api_server",
+      "command": "python model_api_server.py --host 127.0.0.1 --port 8787"
+    },
+    "frontend": {
+      "host": "127.0.0.1",
+      "port": 8000,
+      "name": "BDG Dashboard",
+      "module": "start_frontend",
+      "command": "python start_frontend.py --host 127.0.0.1 --port 8000"
+    }
+  },
+  "health_check": {
+    "interval_seconds": 5,
+    "timeout_seconds": 3,
+    "max_retries": 3,
+    "log_errors": true
+  },
+  "features": {
+    "auto_install_deps": true,
+    "open_browser": true,
+    "monitor_health": true,
+    "log_to_file": true
+  },
+  "paths": {
+    "firebase_config": "firebase-adminsdk.json",
+    "logs_dir": "logs",
+    "requirements": "requirements.txt"
+  },
+  "python": {
+    "min_version": "3.8",
+    "recommended_version": "3.13"
+  },
+  "notes": "Edit this file to customize ports, hosts, and startup behavior"
+}

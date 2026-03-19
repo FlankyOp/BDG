@@ -198,25 +198,35 @@ class PatternDetector:
     
     def _detect_alternating_pattern(self) -> Dict[str, Any]:
         """
-        Detect alternating B/S or S/B pattern with robust validation.
-        Uses extended window and calibrated strength to reduce weak-signal overfitting.
+        Detect alternating B/S or S/B pattern - ENHANCED with lower thresholds.
+        More sensitive to real data patterns.
         """
         if len(self.sizes) < 4:
             return {"found": False, "strength": 0.0, "details": "Insufficient data"}
         
-        # Widen to last 15 draws; require ≥90% alternating transitions
+        # Check both windows: 10 and 15 draws
         recent = list(reversed(self.sizes[:15]))
         alt_count = sum(1 for i in range(1, len(recent)) if recent[i] != recent[i - 1])
         ratio = alt_count / max(len(recent) - 1, 1)
 
-        if ratio >= 0.90:
-            # Calibrated strength: very high ratio merits high confidence
-            calibrated_strength = 0.78 + ratio * 0.15  # Range: 0.78-0.93
+        # ✓ IMPROVED: 90% → 75% threshold for better sensitivity
+        if ratio >= 0.75:
+            # Better strength calibration
+            if ratio >= 0.90:
+                calibrated_strength = 0.85
+                confidence = "high"
+            elif ratio >= 0.80:
+                calibrated_strength = 0.75
+                confidence = "medium-high"
+            else:
+                calibrated_strength = 0.65
+                confidence = "medium"
+            
             logger.info(f"Alternating size pattern detected (ratio={ratio:.2f}, strength={calibrated_strength:.2f})")
             return {
                 "found": True,
-                "strength": min(0.92, calibrated_strength),
-                "confidence": "high" if ratio >= 0.95 else "medium",
+                "strength": min(0.90, calibrated_strength),
+                "confidence": confidence,
                 "pattern": recent,
                 "ratio": ratio,
                 "next_expected": "Small" if recent[-1] == "Big" else "Big"
@@ -226,29 +236,48 @@ class PatternDetector:
     
     def _detect_repeating_pattern(self) -> Dict[str, Any]:
         """
-        Detect repeating pattern like BB SS or SS BB with calibrated confidence.
-        Requires consistent pair repetition for robust signal.
+        Detect repeating pattern like BB SS or SS BB - ENHANCED.
+        More flexible: doesn't require ALL pairs to match.
         """
         if len(self.sizes) < 4:
             return {"found": False, "strength": 0.0}
         
-        # Widen from 6 → 10 draws for more confident pair matching
-        recent = list(reversed(self.sizes[:10]))
+        recent = list(reversed(self.sizes[:12]))  # Extended to 12
         pairs = [recent[i:i+2] for i in range(0, len(recent) - 1, 2)]
         
         if len(pairs) >= 2:
-            if all(pairs[i] == pairs[i+1] for i in range(len(pairs) - 1)):
-                pattern = pairs[0]
-                # Calibrated strength: more consistent pairs = higher confidence
-                pair_count = len(pairs)
-                calibrated_strength = 0.72 + min(pair_count * 0.04, 0.12)  # Range: 0.72-0.84
-                logger.info(f"Repeating pattern detected: {pattern} ({pair_count} pairs, strength={calibrated_strength:.2f})")
+            # ✓ IMPROVED: Instead of requiring ALL pairs to match,
+            # count matching consecutive pairs
+            matching_pairs = 0
+            for i in range(len(pairs) - 1):
+                if pairs[i] == pairs[i+1]:
+                    matching_pairs += 1
+            
+            match_ratio = matching_pairs / max(len(pairs) - 1, 1)
+            
+            # ✓ Require 60%+ matching pairs instead of 100%
+            if match_ratio >= 0.60 and matching_pairs >= 2:
+                pattern = pairs[0]  # Most common pair
+                
+                # Strength based on match ratio
+                if match_ratio >= 0.80:
+                    calibrated_strength = 0.80
+                    confidence = "high"
+                elif match_ratio >= 0.70:
+                    calibrated_strength = 0.70
+                    confidence = "medium-high"
+                else:
+                    calibrated_strength = 0.60
+                    confidence = "medium"
+                
+                logger.info(f"Repeating pattern detected: {pattern} ({match_ratio:.0%}, strength={calibrated_strength:.2f})")
                 return {
                     "found": True,
-                    "strength": min(0.84, calibrated_strength),
-                    "confidence": "high" if pair_count >= 3 else "medium",
+                    "strength": min(0.85, calibrated_strength),
+                    "confidence": confidence,
                     "pattern": pattern,
-                    "pair_count": pair_count,
+                    "pair_count": len(pairs),
+                    "match_ratio": match_ratio,
                     "next_expected": pattern
                 }
         
@@ -365,16 +394,15 @@ class PatternDetector:
     
     def _detect_color_cycle(self) -> Dict[str, Any]:
         """
-        Detect repeating color cycles with robust confidence calibration.
-        Favors longer, more stable cycles and validates with extended match ratio.
+        Detect repeating color cycles - ENHANCED with better sensitivity.
         """
         if len(self.colors) < 4:
             return {"detected": False, "strength": 0.0}
         
-        # Widen from 6 → 9 to validate the cycle over more rounds
-        recent = list(reversed(self.colors[:9]))
+        # Extended from 9 to 12 draws for validation
+        recent = list(reversed(self.colors[:12]))
 
-        # Check for 3-color and 2-color cycles (order: longer cycles first for stability)
+        # Check for 3-color and 2-color cycles
         for cycle_length in [3, 2]:
             if len(recent) >= cycle_length * 2:
                 cycle = recent[:cycle_length]
@@ -382,19 +410,29 @@ class PatternDetector:
                              if recent[i] == cycle[(i - cycle_length) % cycle_length])
                 ratio = matches / max(len(recent) - cycle_length, 1)
                 
-                # Calibrated thresholds: require higher ratio for 3-color (more restrictive)
-                threshold = 0.80 if cycle_length == 3 else 0.72
+                # ✓ IMPROVED: Lower thresholds for better sensitivity
+                # 80% → 65% for 3-color, 72% → 60% for 2-color
+                threshold = 0.65 if cycle_length == 3 else 0.60
                 
                 if ratio >= threshold:
-                    # Calibrated strength: 3-cycles are more stable
-                    calibrated_strength = 0.70 + ratio * 0.20 if cycle_length == 3 else 0.64 + ratio * 0.16
+                    # Better strength calibration
+                    if ratio >= 0.85:
+                        calibrated_strength = 0.85
+                        confidence = "high"
+                    elif ratio >= 0.75:
+                        calibrated_strength = 0.75
+                        confidence = "medium-high"
+                    else:
+                        calibrated_strength = 0.65
+                        confidence = "medium"
+                    
                     logger.info(f"Color cycle detected (length={cycle_length}, ratio={ratio:.2f}, strength={calibrated_strength:.2f})")
                     return {
                         "detected": True,
                         "cycle_length": cycle_length,
                         "cycle": cycle,
-                        "strength": min(0.85, calibrated_strength),
-                        "confidence": "high" if ratio >= 0.85 else "medium",
+                        "strength": min(0.88, calibrated_strength),
+                        "confidence": confidence,
                         "match_ratio": ratio,
                         "next_color": cycle[len(recent) % cycle_length]
                     }
@@ -403,8 +441,7 @@ class PatternDetector:
     
     def _get_dominant_color(self) -> Dict[str, Any]:
         """
-        Get most frequent color in recent draws with explicit strength signal.
-        Strength is calibrated based on dominance percentage to indicate confidence.
+        Get most frequent color - ENHANCED for better impact on predictions.
         """
         color_count = Counter(self.colors)
         if not color_count:
@@ -413,19 +450,19 @@ class PatternDetector:
         most_common = color_count.most_common(1)[0]
         percentage = (most_common[1] / len(self.colors)) * 100
         
-        # Calibrated strength: 50%+ = 0.7-0.9 strength, <50% = weaker
-        if percentage >= 60:
+        # ✓ IMPROVED: Lower thresholds for better color impact
+        if percentage >= 55:
             strength = 0.85
             confidence = "high"
-        elif percentage >= 55:
-            strength = 0.75
-            confidence = "medium" 
         elif percentage >= 50:
+            strength = 0.75
+            confidence = "medium-high"
+        elif percentage >= 45:
             strength = 0.65
             confidence = "medium"
         else:
-            strength = 0.45
-            confidence = "low"
+            strength = 0.50  # Increased from 0.45
+            confidence = "medium-low"
         
         return {
             "color": most_common[0],

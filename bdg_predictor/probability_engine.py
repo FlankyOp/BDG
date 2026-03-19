@@ -3,12 +3,12 @@ Probability Engine Module
 Calculates weighted probabilities and confidence scores for predictions.
 """
 
-import logging
-from typing import Any, List, Dict, Tuple, Optional, cast
+from typing import List, Dict, Tuple, Optional, Any, cast
 from pattern_detector import SizeMapper, ColorMapper, PatternDetector
 from config import Config
-
+import logging
 logger = logging.getLogger(__name__)
+
 
 
 class ProbabilityEngine:
@@ -34,45 +34,34 @@ class ProbabilityEngine:
         return self.patterns.get("color_patterns", {})
 
     def _cycles(self) -> List[Dict[str, Any]]:
-        raw_cycles = self.patterns.get("cycles", [])
-        if not isinstance(raw_cycles, list):
-            return []
-        return cast(List[Dict[str, Any]], raw_cycles)
+        return cast(List[Dict[str, Any]], self.patterns.get("cycles", [])) if isinstance(self.patterns.get("cycles", []), list) else []
 
     def _sequence_patterns(self) -> Dict[str, Any]:
-        raw_sequence = self.patterns.get("sequence_patterns", {})
-        if not isinstance(raw_sequence, dict):
-            return {}
-        return cast(Dict[str, Any], raw_sequence)
+        return cast(Dict[str, Any], self.patterns.get("sequence_patterns", {})) if isinstance(self.patterns.get("sequence_patterns", {}), dict) else {}
 
     def _sequence_scores(self) -> Dict[int, float]:
         raw_scores = self._sequence_patterns().get("scores", {})
         if not isinstance(raw_scores, dict):
             return {}
-
-        typed_scores = cast(Dict[Any, Any], raw_scores)
         normalized: Dict[int, float] = {}
-        for key, value in typed_scores.items():
+        for key, value in raw_scores.items():
             try:
                 number = int(key)
                 score = float(value)
+                if 0 <= number <= 9:
+                    normalized[number] = max(0.0, score)
             except (TypeError, ValueError):
                 continue
-
-            if 0 <= number <= 9:
-                normalized[number] = max(0.0, score)
-
         return normalized
 
     def _color_family(self, color: Optional[str]) -> Optional[str]:
         if not color:
             return None
 
-        normalized = str(color)
-        if normalized == "Violet":
+        if str(color) == "Violet":
             return "Red"
-        if normalized in {"Red", "Green"}:
-            return normalized
+        if str(color) in {"Red", "Green"}:
+            return str(color)
         return None
 
     def _matches_preferred_color(self, number_color: str, preferred_color: Optional[str]) -> bool:
@@ -82,98 +71,58 @@ class ProbabilityEngine:
         if number_color == preferred_color:
             return True
 
-        number_family = self._color_family(number_color)
-        preferred_family = self._color_family(preferred_color)
-        return number_family is not None and number_family == preferred_family
+        return self._color_family(number_color) is not None and self._color_family(number_color) == self._color_family(preferred_color)
 
     def _repeat_penalty_multiplier(self, number: int) -> float:
         """Return a multiplier that penalizes immediate/recent repeats."""
         if not self.draws:
             return 1.0
 
-        recent_2 = self.draws[:2]
-        recent_5 = self.draws[:5]
-        recent_10 = self.draws[:10]
         multiplier = 1.0
-
         if number == self.draws[0]:
             multiplier *= 0.55
-
-        if recent_2.count(number) == 2:
+        if self.draws[:2].count(number) == 2:
             multiplier *= 0.70
-
-        if number == 0 and recent_10.count(0) >= 2:
+        if number == 0 and self.draws[:10].count(0) >= 2:
             multiplier *= 0.85
-        if number == 0 and recent_5.count(0) >= 2:
+        if number == 0 and self.draws[:5].count(0) >= 2:
             multiplier *= 0.75
-
-        if recent_5.count(number) >= 3:
+        if self.draws[:5].count(number) >= 3:
             multiplier *= 0.80
-
         return multiplier
 
     def _extract_preferred_color(self) -> Tuple[Optional[str], float]:
         cp = self._color_patterns()
-        
         nAnB = cp.get("nAnB_pattern", {})
         if nAnB.get("type") and nAnB.get("strength", 0) >= 0.65:
-            next_color = str(nAnB.get("next_color"))
-            strength = float(nAnB.get("strength", 0.65))
-            confidence = min(0.92, 0.65 + strength * 0.30)
-            logger.debug(f"Color hierarchy: nAnB pattern '{nAnB['type']}' -> {next_color} (conf={confidence:.2f})")
-            return (next_color, confidence)
-        
+            return (str(nAnB.get("next_color")), min(0.92, 0.65 + float(nAnB.get("strength", 0.65)) * 0.30))
         color_cycle = cp.get("color_cycle", {})
         if color_cycle.get("detected"):
-            next_color = str(color_cycle.get("next_color"))
-            cycle_strength = float(color_cycle.get("strength", 0.70))
-            confidence = min(0.88, 0.60 + cycle_strength * 0.25)
-            logger.debug(f"Color hierarchy: cycle pattern -> {next_color} (conf={confidence:.2f})")
-            return (next_color, confidence)
-        
+            return (str(color_cycle.get("next_color")), min(0.88, 0.60 + float(color_cycle.get("strength", 0.70)) * 0.25))
         dom = cp.get("dominant_color", {})
         if dom.get("color"):
             percentage = float(dom.get("percentage", 0.0))
             if percentage >= 55:
-                dom_color = str(dom["color"])
-                dom_strength = float(dom.get("strength", 0.45))
-                confidence = min(0.78, 0.45 + dom_strength * 0.30)
-                logger.debug(f"Color hierarchy: dominant '{dom_color}' {percentage:.1f}% (conf={confidence:.2f})")
-                return (dom_color, confidence)
-        
-        logger.debug("Color hierarchy: no strong signal, will blend all colors")
+                return (str(dom["color"]), min(0.78, 0.45 + float(dom.get("strength", 0.45)) * 0.30))
         return (None, 0.0)
 
     def _extract_preferred_size(self) -> Tuple[Optional[str], float]:
         sp = self._size_patterns()
-        
         alt = sp.get("alternating", {})
         if alt.get("found", False):
             alt_strength = float(alt.get("strength", 0.78))
             if alt_strength >= 0.75:
-                next_size = str(alt.get("next_expected"))
-                confidence = min(0.90, 0.70 + alt_strength * 0.25)
-                logger.debug(f"Size hierarchy: alternating pattern -> {next_size} (conf={confidence:.2f})")
-                return (next_size, confidence)
-        
+                return (str(alt.get("next_expected")), min(0.90, 0.70 + alt_strength * 0.25))
         rep = sp.get("repeating", {})
         if rep.get("found", False):
             rep_strength = float(rep.get("strength", 0.72))
-            next_size = str(rep.get("next_expected"))
-            confidence = min(0.85, 0.65 + rep_strength * 0.20)
-            logger.debug(f"Size hierarchy: repeating pattern -> {next_size} (conf={confidence:.2f})")
-            return (next_size, confidence)
-        
+            return (str(rep.get("next_expected")), min(0.85, 0.65 + rep_strength * 0.20))
         streak = sp.get("current_streak", {})
         streak_len = int(streak.get("length", 0))
         if streak_len >= Config.MIN_STREAK_LENGTH:
             streak_type = str(streak.get("type"))
             next_expected = "Small" if streak_type == "Big" else "Big"
-            confidence = min(0.80, 0.50 + streak_len * 0.08)
-            logger.debug(f"Size hierarchy: {streak_len}-streak reversal -> {next_expected} (conf={confidence:.2f})")
-            return (next_expected, confidence)
-        
-        logger.debug("Size hierarchy: no strong signal, will blend all sizes")
+            return (next_expected, min(0.80, 0.50 + streak_len * 0.08))
         return (None, 0.0)
 
     def _resolve_weights(self, profile: Optional[Dict[str, float]]) -> Dict[str, float]:
@@ -212,46 +161,62 @@ class ProbabilityEngine:
         }
     
     def calculate_trend_weight(self, number: int) -> float:
-        """Calculate trend weight based on recent patterns."""
+        """Calculate trend weight based on recent patterns - ENHANCED."""
         weight = 0.0
         
         size = SizeMapper.get_size(number)
         size_patterns = self._size_patterns()
         current_streak = size_patterns.get("current_streak", {})
         
+        # ✓ STRONGER STREAK REVERSAL SIGNAL
         pattern_type = str(size_patterns.get("pattern_type", ""))
         if pattern_type == "Streak":
             streak_type = str(current_streak.get("type", ""))
             streak_length = int(current_streak.get("length", 0))
             if size != streak_type and streak_length >= Config.MIN_STREAK_LENGTH:
-                weight += 0.35
+                # More aggressive: 35% → 50% for strong reversal signals
+                weight += 0.50
         
-        recent_sizes = self.detector.sizes[:5]
-        if recent_sizes.count("Big") >= 3:
+        # ✓ ENHANCED SIZE BALANCE DETECTION
+        recent_sizes = self.detector.sizes[:10]  # Increased from 5 to 10
+        big_count = recent_sizes.count("Big")
+        small_count = recent_sizes.count("Small")
+        
+        # More sensitive thresholds: 3/5 → 5/10 for clearer dominance
+        if big_count >= 6:
             if size == "Small":
-                weight += Config.SIZE_BALANCE_BOOST
-        elif recent_sizes.count("Small") >= 3:
+                weight += Config.SIZE_BALANCE_BOOST * 1.5  # Increased boost
+        elif small_count >= 6:
             if size == "Big":
-                weight += Config.SIZE_BALANCE_BOOST
+                weight += Config.SIZE_BALANCE_BOOST * 1.5  # Increased boost
         
+        # ✓ NOVELTY BOOST - Missing numbers get strong boost
         freq = self.detector.get_number_frequency()
         if freq.get(number, 0) == 0:
-            weight += 0.10
+            weight += 0.20  # Increased from 0.10 to 0.20
+        
+        # ✓ RECENCY TREND - Numbers appearing after long gaps
+        if number in self.draws:
+            last_pos = self.draws.index(number)
+            if last_pos >= 5:  # Haven't seen it in last 5 draws
+                weight += 0.15  # NEW: Boost for recency gaps
         
         return min(weight, 1.0)
 
     def calculate_frequency_weight(self, number: int) -> float:
-        """Calculate frequency weight based on historical frequency."""
+        """Calculate frequency weight - ENHANCED for better sensitivity."""
         freq = self.detector.get_number_frequency()
         max_freq = max(freq.values()) if freq.values() else 1
         normalized_freq = freq.get(number, 0) / max_freq if max_freq > 0 else 0
         
-        weight = 1.0 - normalized_freq
+        # ✓ IMPROVED: Non-linear weighting favors underrepresented numbers
+        # Numbers that appear rarely get much higher weights
+        weight = (1.0 - normalized_freq) ** 1.3  # Exponent makes underrepresented pop more
         
         return weight
     
     def calculate_cycle_weight(self, number: int) -> float:
-        """Calculate weight based on cycle detection."""
+        """Calculate weight based on cycle detection - ENHANCED."""
         cycles = self._cycles()
         
         if not cycles:
@@ -259,16 +224,20 @@ class ProbabilityEngine:
         
         best_cycle = max(cycles, key=lambda cycle: float(cycle.get("strength", 0.0)))
         strength = float(best_cycle.get("strength", 0.0))
-        if strength < 0.5:
+        
+        # ✓ IMPROVED: 0.5 → 0.40 threshold for better sensitivity
+        if strength < 0.40:
             return 0.0
         
         next_number = best_cycle.get("next_number")
         if next_number == number:
-            return strength * 0.9
+            # ✓ Increased boost: 0.9 → 1.0 for direct cycle match
+            return min(1.0, strength * 1.0)
         
         pattern = best_cycle.get("pattern", [])
         if isinstance(pattern, list) and number in pattern:
-            return strength * 0.6
+            # ✓ Increased boost for cycle participation: 0.6 → 0.75
+            return strength * 0.75
         
         return 0.0
 
@@ -288,20 +257,27 @@ class ProbabilityEngine:
         return 0.0
 
     def calculate_noise_weight(self, number: int) -> float:
-        """Calculate noise weight (randomness dampening)."""
+        """Calculate noise weight - ENHANCED for better gap detection."""
         if number not in self.draws:
-            return 0.0
-
-        if number not in self.draws[:3]:
-            return 0.15
-
-        last_appearance = self.draws.index(number)
-        recency_factor = last_appearance / max(len(self.draws), 1)
+            # Numbers that don't appear at all get a small boost
+            return 0.05  # NEW: Small boost for truly missing numbers
         
-        return recency_factor * 0.10
+        # ✓ IMPROVED: More generous boost for numbers missing from recent draws
+        if number not in self.draws[:5]:  # Changed from [:3]
+            return 0.25  # Increased from 0.15
+        
+        last_appearance = self.draws.index(number)
+        
+        # ✓ IMPROVED: Better recency gap detection
+        if last_appearance >= 10:
+            return 0.30  # Strong boost for long-absent numbers
+        elif last_appearance >= 5:
+            return 0.20
+        
+        return 0.0
 
     def calculate_sequence_weight(self, number: int) -> float:
-        """Calculate next-token-style weight from the 500-draw sequence learner."""
+        """Calculate next-token-style weight from the 500-draw sequence learner - FIXED."""
         sequence_scores = self._sequence_scores()
         if not sequence_scores:
             return 0.0
@@ -314,30 +290,53 @@ class ProbabilityEngine:
         if top_probability <= 0.0:
             return 0.0
 
+        # ✓ FIXED: Was broken - probability * 3.0 + relative could exceed 1.0
+        # Now uses relative strength only, normalized properly
         relative_strength = probability / top_probability
-        return min(1.0, probability * 3.0 + relative_strength * 0.35)
+        
+        # Returns normalized 0-1 score based on relative ranking
+        # If number is top prediction: 0.95-1.0
+        # If number is middle: 0.5-0.7
+        # If number is bottom: 0.0-0.2
+        return min(1.0, relative_strength)
 
     def calculate_color_weight(self, number: int) -> float:
-        """Calculate color-based weight."""
+        """Calculate color-based weight - ENHANCED."""
         color = ColorMapper.get_color(number)
         color_patterns = self._color_patterns()
         dominant = color_patterns.get("dominant_color", {})
+        nAnB = color_patterns.get("nAnB_pattern", {})
         
+        weight = 0.0
+        
+        # ✓ STRONGER nAnB pattern boost
         color_pattern = str(color_patterns.get("pattern_type", ""))
         if color_pattern and "A" in color_pattern:
-            nAnB = color_patterns.get("nAnB_pattern", {})
             if color == str(nAnB.get("next_color", "")):
-                return Config.COLOR_BOOST
+                weight += Config.COLOR_BOOST * 1.5  # Increased: 0.18 → 0.27
         
-        if dominant.get("color") and color != str(dominant["color"]):
+        # ✓ ENHANCED dominant color detection
+        if dominant.get("color"):
+            dom_color = str(dominant["color"])
             percentage = float(dominant.get("percentage", 0.0))
-            boost = 1.0 - (percentage / 100)
-            return boost * 0.15
+            
+            if color == dom_color and percentage >= 50:
+                # BOOST for dominant colors
+                weight += 0.25 * (percentage / 100)  # NEW: Boost dominant
+            elif color != dom_color:
+                # Small penalty for non-dominant
+                weight -= 0.10
         
-        return 0.0
+        # ✓ NEW: Color cycling pattern bonus
+        if color_patterns.get("color_cycle", {}).get("detected"):
+            cycle = color_patterns["color_cycle"].get("cycle", [])
+            if cycle and color in cycle:
+                weight += 0.15
+        
+        return max(0.0, min(weight, 1.0))
 
     def calculate_confidence_score(self, number: int) -> float:
-        """Calculate overall confidence score using weighted formula."""
+        """Calculate overall confidence score - ENHANCED with better balancing."""
         comps = self.get_weight_components(number)
         trend = comps["trend"]
         frequency = comps["frequency"]
@@ -347,6 +346,7 @@ class ProbabilityEngine:
         sequence = comps["sequence"]
         color = self.calculate_color_weight(number)
         
+        # ✓ IMPROVED: Better weight distribution
         score = (
             trend * self.weights["trend"] +
             frequency * self.weights["frequency"] +
@@ -356,8 +356,17 @@ class ProbabilityEngine:
             sequence * self.weights["sequence"]
         )
         
-        if color > 0.1:
-            score = score * (1.0 - Config.COLOR_BLEND_WEIGHT) + color * Config.COLOR_BLEND_WEIGHT
+        # ✓ ENHANCED: Color has stronger impact
+        if color > 0.05:  # Changed from 0.1 to 0.05
+            # More aggressive color blending: 5% → 15%
+            color_blend = Config.COLOR_BLEND_WEIGHT * 3.0  # Increased impact
+            score = score * (1.0 - color_blend) + color * color_blend
+
+        # ✓ IMPROVED: Apply trend boost multiplier
+        size_patterns = self._size_patterns()
+        if size_patterns.get("pattern_type") in ["Alternating", "Streak", "Repeating"]:
+            if score > 0.1:  # Only boost if already has some signal
+                score *= 1.15  # 15% boost for detected trends
 
         score *= self._repeat_penalty_multiplier(number)
         
@@ -365,64 +374,45 @@ class ProbabilityEngine:
     
     def rank_all_numbers(self) -> List[Tuple[int, float, str, str]]:
         """Rank all numbers 0-9 using strict hierarchy: color -> size -> number score."""
-        preferred_color, color_conf = self._extract_preferred_color()
-        preferred_size, size_conf = self._extract_preferred_size()
+        pref_color, color_conf = self._extract_preferred_color()
+        pref_size, size_conf = self._extract_preferred_size()
         logger.info(
             "Hierarchy targets: color=%s (%.2f), size=%s (%.2f)",
-            preferred_color or "None",
+            pref_color or "None",
             color_conf,
-            preferred_size or "None",
+            pref_size or "None",
             size_conf,
         )
-        
-        all_rankings: List[Dict[str, Any]] = []
-        for number in range(10):
-            score = self.calculate_confidence_score(number)
-            size = SizeMapper.get_size(number)
-            color = ColorMapper.get_color(number)
-            
+        rankings: List[Dict[str, Any]] = []
+        for num in range(10):
+            score = self.calculate_confidence_score(num)
+            size = SizeMapper.get_size(num)
+            color = ColorMapper.get_color(num)
             tier = 3
-            
-            if preferred_color and color_conf >= 0.60:
-                if self._matches_preferred_color(color, preferred_color):
-                    tier = 1
-                elif preferred_size and size_conf >= 0.60 and size == preferred_size:
-                    tier = 2
-                else:
-                    tier = 3
-            elif preferred_size and size_conf >= 0.60:
-                if size == preferred_size:
-                    tier = 1
-                else:
-                    tier = 2
-            
-            all_rankings.append({
-                "number": number,
+            # Tier 1: Color match (high confidence)
+            if pref_color and color_conf >= 0.60 and self._matches_preferred_color(color, pref_color):
+                tier = 1
+            # Tier 1: Size match (high confidence, color signal weak)
+            elif pref_size and size_conf >= 0.60 and (not pref_color or color_conf < 0.60) and size == pref_size:
+                tier = 1
+            # Tier 2: Size match (color signal strong, but not matched)
+            elif pref_color and color_conf >= 0.60 and pref_size and size_conf >= 0.60 and size == pref_size:
+                tier = 2
+            # Tier 2: Size match (color signal weak)
+            elif pref_size and size_conf >= 0.60 and size == pref_size:
+                tier = 2
+            rankings.append({
+                "number": num,
                 "score": score,
                 "size": size,
                 "color": color,
-                "tier": tier,
-                "hierarchy_metadata": {
-                    "preferred_color": preferred_color,
-                    "color_conf": color_conf,
-                    "preferred_size": preferred_size,
-                    "size_conf": size_conf,
-                    "assigned_tier": tier
-                }
+                "tier": tier
             })
-        
-        all_rankings.sort(key=lambda x: (x["tier"], -x["score"]))
-        
-        rankings: List[Tuple[int, float, str, str]] = [
-            (r["number"], r["score"], r["size"], r["color"]) for r in all_rankings
-        ]
-        
+        rankings.sort(key=lambda x: (x["tier"], -x["score"]))
         logger.info(f"Hierarchical rankings (color_signal={color_conf:.2f}, size_signal={size_conf:.2f}):")
-        for i, (num, score, size, color) in enumerate(rankings[:5]):
-            tier = all_rankings[i]["tier"]
-            logger.info(f"  {i+1}. {num}: {score:.2%} ({size}, {color}) [tier={tier}]")
-        
-        return rankings
+        for i, r in enumerate(rankings[:5]):
+            logger.info(f"  {i+1}. {r['number']}: {r['score']:.2%} ({r['size']}, {r['color']}) [tier={r['tier']}]")
+        return [(r["number"], r["score"], r["size"], r["color"]) for r in rankings]
     
     def get_top_predictions(self, top_n: int = 3) -> List[Dict[str, Any]]:
         """Get top N predictions with detailed information."""

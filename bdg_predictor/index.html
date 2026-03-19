@@ -119,8 +119,23 @@
           </h1>
           <p class="text-sm text-gray-400 mt-1 flex items-center gap-2">
             <span class="w-2 h-2 rounded-full bg-green-500 pulse"></span>
-            Live V12 Auto-Predictor (1s Aggressive Polling)
+            Live tracker (1s polling)
           </p>
+          <div class="text-xs text-gray-500 mt-1 flex items-center gap-2">
+            <span>Owner: FlankyOp</span>
+            <a
+              href="https://discord.gg/nKvAfpmEEH"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Join Discord"
+              title="Join Discord"
+              class="inline-flex items-center justify-center w-6 h-6 rounded-full border border-[#5865F2] bg-[#5865F2]/20 text-[#8ea1ff] hover:bg-[#5865F2]/35 hover:text-[#c2ccff] transition-colors"
+            >
+              <svg viewBox="0 0 24 24" class="w-4 h-4" fill="currentColor" aria-hidden="true">
+                <path d="M20.317 4.369A19.791 19.791 0 0 0 15.885 3a13.354 13.354 0 0 0-.676 1.366 18.27 18.27 0 0 0-6.418 0A13.077 13.077 0 0 0 8.115 3a19.736 19.736 0 0 0-4.432 1.369C.533 9.068-.32 13.652.099 18.171a19.9 19.9 0 0 0 5.993 2.965 14.29 14.29 0 0 0 1.284-2.09 12.93 12.93 0 0 1-2.024-.964c.17-.124.337-.253.498-.385a14.252 14.252 0 0 0 12.3 0c.162.132.328.261.499.385a12.78 12.78 0 0 1-2.028.966 14.05 14.05 0 0 0 1.285 2.088 19.866 19.866 0 0 0 5.995-2.965c.495-5.241-.848-9.784-3.484-13.802zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.334.948-2.42 2.157-2.42 1.21 0 2.183 1.098 2.157 2.42 0 1.334-.947 2.419-2.157 2.419zm7.96 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.334.948-2.42 2.157-2.42 1.21 0 2.183 1.098 2.157 2.42 0 1.334-.947 2.419-2.157 2.419z"/>
+              </svg>
+            </a>
+          </div>
         </div>
       </div>
             
@@ -128,6 +143,7 @@
         <button onclick="setMode('WinGo_30S')" id="btn-WinGo_30S" class="px-4 py-2 rounded font-bold transition-colors bg-green-600 text-white shadow-lg shadow-green-900/50">30s</button>
         <button onclick="setMode('WinGo_1M')" id="btn-WinGo_1M" class="px-4 py-2 rounded border border-gray-600 hover:bg-gray-800 transition-colors text-gray-300">1m</button>
         <button onclick="setMode('WinGo_3M')" id="btn-WinGo_3M" class="px-4 py-2 rounded border border-gray-600 hover:bg-gray-800 transition-colors text-gray-300">3m</button>
+        <button onclick="setMode('WinGo_5M')" id="btn-WinGo_5M" class="px-4 py-2 rounded border border-gray-600 hover:bg-gray-800 transition-colors text-gray-300">5m</button>
       </div>
     </header>
 
@@ -204,11 +220,47 @@
 
           <div class="mt-4 bg-gray-800/50 p-4 rounded-lg border border-gray-700">
             <div class="flex justify-between text-xs text-gray-300 font-bold mb-2 uppercase">
-              <span>AI Confidence</span>
+              <span>Confidence</span>
               <span id="pred-conf" class="neon-text-green">0%</span>
             </div>
             <div class="w-full bg-gray-900 rounded-full h-2.5 border border-gray-700 overflow-hidden">
               <div id="pred-conf-bar" class="pred-conf-bar bg-green-500 h-2.5 rounded-full transition-all duration-1000 ease-out"></div>
+            </div>
+          </div>
+
+          <div class="mt-3 bg-gray-900/70 p-4 rounded-lg border border-gray-700 text-left">
+<div class="flex items-center justify-between mb-2 gap-2">
+              <p class="text-xs text-gray-300 uppercase font-bold tracking-wide">Bet Assistant (Sim)</p>
+              <select id="bet-type" class="text-xs px-2 py-1 rounded bg-gray-800 text-green-300 border border-gray-700" title="Bet Type Selector - Number(9x payout), Size/Color(1.95x payout)">
+                <option value="number">Number (9x)</option>
+                <option value="size">Size (1.95x)</option>
+                <option value="color">Color (1.95x)</option>
+              </select>
+              <span id="bet-level" class="text-xs font-bold px-2 py-1 rounded bg-gray-800 text-green-300 border border-gray-700">L0</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-xs font-mono">
+              <div class="stat-box p-2">
+                <div class="flex justify-between items-center">
+                  <p class="text-gray-400 uppercase">Balance</p>
+                  <button onclick="editBalance()" class="text-gray-500 hover:text-green-400 transition text-xs px-1" title="Edit balance">✎</button>
+                </div>
+                <p id="bet-balance" class="text-green-300 font-bold mt-1">Rs 1000</p>
+              </div>
+              <div class="stat-box p-2">
+                <div class="flex justify-between items-center">
+                  <p class="text-gray-400 uppercase">Next Stake</p>
+                  <button onclick="editLevel()" class="text-gray-500 hover:text-yellow-400 transition text-xs px-1" title="Edit level">✎</button>
+                </div>
+                <p id="bet-stake" class="text-yellow-300 font-bold mt-1">Rs 10</p>
+              </div>
+            </div>
+            <div class="mt-2 text-xs font-mono">
+              <p class="text-gray-400 uppercase">Target</p>
+              <p id="bet-target" class="text-cyan-300 font-bold">Waiting next prediction...</p>
+            </div>
+            <div class="mt-2 text-xs font-mono">
+              <p class="text-gray-400 uppercase">Last Result</p>
+              <p id="bet-status" class="text-gray-300 font-bold">No bet settled yet.</p>
             </div>
           </div>
         </div>
@@ -231,7 +283,7 @@
                 <th class="px-4 py-3 rounded-tl-lg font-bold">Period</th>
                 <th class="px-4 py-3 font-bold text-center">Result</th>
                 <th class="px-4 py-3 font-bold text-center">Size</th>
-                <th class="px-4 py-3 font-bold text-center rounded-tr-lg">AI Accuracy</th>
+                <th class="px-4 py-3 font-bold text-center rounded-tr-lg">Prediction Accuracy</th>
               </tr>
             </thead>
             <tbody id="history-body" class="divide-y divide-gray-800/50 font-mono">
@@ -267,6 +319,7 @@
     };
 
   const API_BASE = "https://draw.ar-lottery01.com";
+  const MODEL_API_BASE = window.BDG_MODEL_API_BASE || "http://127.0.0.1:8787";
   let currentGame = 'WinGo_30S';
   let currentInterval = 30;
   let lastIssue = null;
@@ -274,14 +327,39 @@
   let isFetching = false;
   let lastTimerTriggerKey = '';
   let hasBootstrapped = false;
+  let persistenceReady = false;
+  let fetchFailCount = 0;
     let firebaseDb = null;
     let historyCache = [];
     let isApplyingPersistedState = false;
+
+  // Dynamic Martingale levels: 1 × 3^n — scales with balance, minimum bet Rs 1
+  const BET_LEVELS = Array.from({ length: 12 }, (_, i) => Math.round(1 * Math.pow(3, i)));
+  // [1, 3, 9, 27, 81, 243, 729, 2187, 6561, 19683, 59049, 177147]
+  const PAYOUTS = { number: 9.0, size: 1.95, color: 1.95 };
+  const RISK_CAP = 0.3; // 30% of balance max exposure
+
+function defaultBetState() {
+    return {
+      initialBalance: 1000,
+      balance: 1000,
+      level: 0,
+      betType: 'number',
+      totalBets: 0,
+      wins: 0,
+      losses: 0,
+      pendingBet: null,
+      lastResult: 'No bet settled yet.',
+    };
+  }
+
+  let betState = defaultBetState();
 
   const MODE_INTERVALS = {
     WinGo_30S: 30,
     WinGo_1M: 60,
     WinGo_3M: 180,
+    WinGo_5M: 300,
   };
 
   function trackingPath() {
@@ -294,6 +372,172 @@
 
   function localTrackingKey() {
     return `client_tracking_${currentGame}`;
+  }
+
+function clampLevel(level) {
+    return Math.max(0, Math.min(level, BET_LEVELS.length - 1));
+  }
+
+  function computeMaxLevel(balance) {
+    // Single-level risk: allow any level whose stake fits within 30% of balance.
+    // This scales properly — higher balance unlocks higher levels.
+    //   Rs 1000 → max stake 300 → L3 (270)
+    //   Rs 3000 → max stake 900 → L4 (810)
+    //   Rs 10000 → max stake 3000 → L5 (2430)
+    const MAX_STAKE_FRACTION = 0.3;
+    const maxStake = balance * MAX_STAKE_FRACTION;
+    let best = 0;
+    for (let l = 0; l < BET_LEVELS.length; l++) {
+      if (BET_LEVELS[l] <= maxStake) {
+        best = l;
+      } else {
+        break;
+      }
+    }
+    return best;
+  }
+
+  function currentStakeForLevel(level) {
+    return BET_LEVELS[clampLevel(level)];
+  }
+
+function renderBetPanel() {
+    const balanceEl = document.getElementById('bet-balance');
+    const stakeEl = document.getElementById('bet-stake');
+    const levelEl = document.getElementById('bet-level');
+    const targetEl = document.getElementById('bet-target');
+    const statusEl = document.getElementById('bet-status');
+    const betTypeEl = document.getElementById('bet-type');
+    if (!balanceEl || !stakeEl || !levelEl || !targetEl || !statusEl || !betTypeEl) return;
+
+    const level = clampLevel(Number(betState.level || 0));
+    const maxLevel = computeMaxLevel(Number(betState.balance || 1000));
+    const safeLevel = Math.min(level, maxLevel);
+    const nextStakePerNum = currentStakeForLevel(safeLevel);
+    const balance = Number(betState.balance || 0);
+    const betType = betState.betType || 'number';
+
+    // For Number mode, show per-number stake clearly so payout math is obvious
+    const pendingNumCount = (betType === 'number' && betState.pendingBet?.targetNumbers?.length)
+      ? betState.pendingBet.targetNumbers.length
+      : (betType === 'number' ? 3 : 1); // default 3 predictions
+
+    balanceEl.textContent = `Rs ${balance.toFixed(0)}`;
+    if (betType === 'number') {
+      // Show "Rs 90 ×3" so user understands each number gets Rs 90 at 9x payout
+      stakeEl.innerHTML = `Rs ${nextStakePerNum} <span style="color:var(--neon-green);font-size:10px">×${pendingNumCount}</span>`;
+    } else {
+      stakeEl.textContent = `Rs ${nextStakePerNum}`;
+    }
+    levelEl.textContent = `L${safeLevel} / Max L${maxLevel}`;
+
+    // Sync dropdown only if it doesn't match (e.g. on page load / persistence restore)
+    // During normal operation, onchange handler is the source of truth
+    if (!betTypeEl._userControlled && betTypeEl.value !== betType) {
+      betTypeEl.value = betType;
+    }
+
+    if (betState.pendingBet) {
+      let targetText = `Period ${betState.pendingBet.period}`;
+      if (betType === 'number') targetText += ` | NUM ${betState.pendingBet.targetNumbers?.join(',') || betState.pendingBet.targetNumber}`;
+      else if (betType === 'size') targetText += ` | ${betState.pendingBet.targetSize}`;
+      else targetText += ` | ${betState.pendingBet.targetColor}`;
+      targetEl.textContent = targetText;
+    } else {
+      targetEl.textContent = 'Waiting next prediction...';
+    }
+
+    statusEl.textContent = String(betState.lastResult || 'No bet settled yet.');
+    statusEl.className = `font-bold ${String(betState.lastResult).includes('WIN') ? 'text-green-300' : String(betState.lastResult).includes('LOSS') ? 'text-red-300' : 'text-gray-300'}`;
+  }
+
+function armNextBet() {
+    if (!activePrediction) return;
+    
+    // Always use betState.betType as the single source of truth
+    const betType = betState.betType || 'number';
+    
+    const balance = Number(betState.balance || 1000);
+    const maxLevel = computeMaxLevel(balance);
+    let level = clampLevel(Number(betState.level || 0));
+    level = Math.min(level, maxLevel);
+    
+    const stake = currentStakeForLevel(level);
+    
+    const predictedNums = Array.isArray(activePrediction.numbers)
+      ? activePrediction.numbers
+      : [Number(activePrediction.number)];
+
+    betState.pendingBet = {
+      period: String(activePrediction.period || ''),
+      betType: betType,
+      targetNumber: Number(activePrediction.number),
+      targetNumbers: predictedNums,
+      targetSize: String(activePrediction.size || '-'),
+      targetColor: String(activePrediction.color || '-'),
+      stake: stake,
+      level: level,
+      maxLevel: maxLevel,
+    };
+
+    betState.betType = betType;
+    renderBetPanel();
+  }
+
+function settleBetFromResult(resultEval, actualNum, actualSize, actualColor) {
+    if (!betState.pendingBet) return;
+
+    const betType = betState.pendingBet.betType || 'number';
+    const stakePerNum = Number(betState.pendingBet.stake || 0);
+    const payout = PAYOUTS[betType] || 1.95;
+    const prevBalance = Number(betState.balance || 0);
+
+    // For Number mode each predicted number gets its own stake placed.
+    // totalCost = stakePerNum × count  (e.g. 3 nums → Rs10×3 = Rs30 risked)
+    const numBets = (betType === 'number')
+      ? Math.max(1, (betState.pendingBet.targetNumbers?.length || 1))
+      : 1;
+    const totalCost = stakePerNum * numBets;
+
+    // Determine win condition
+    let won = false;
+    if (betType === 'number') {
+      won = betState.pendingBet.targetNumbers?.includes(actualNum) || false;
+    } else if (betType === 'size') {
+      won = betState.pendingBet.targetSize === actualSize;
+    } else if (betType === 'color') {
+      won = betState.pendingBet.targetColor === actualColor;
+    }
+
+    betState.totalBets = Number(betState.totalBets || 0) + 1;
+
+    if (won) {
+      // Win: get back stakePerNum × payout on the winning bet, lose the other bets
+      const winReturn = stakePerNum * payout;
+      const netProfit = winReturn - totalCost;
+      betState.wins = Number(betState.wins || 0) + 1;
+      betState.balance = prevBalance + netProfit;
+      betState.level = 0;
+      if (betType === 'number') {
+        betState.lastResult = `WIN | +Rs ${netProfit.toFixed(0)} | ${stakePerNum}×${payout}=${winReturn.toFixed(0)} - ${totalCost} cost | Bal Rs ${betState.balance.toFixed(0)}`;
+      } else {
+        betState.lastResult = `WIN | +Rs ${netProfit.toFixed(0)} | ${stakePerNum}×${payout}=${winReturn.toFixed(0)} | Bal Rs ${betState.balance.toFixed(0)}`;
+      }
+    } else {
+      betState.losses = Number(betState.losses || 0) + 1;
+      betState.balance = prevBalance - totalCost;
+      const nextLevel = clampLevel(Number(betState.level || 0) + 1);
+      const nextStake = currentStakeForLevel(nextLevel);
+      betState.level = nextLevel;
+      if (betType === 'number') {
+        betState.lastResult = `LOSS | -Rs ${totalCost} (${stakePerNum}×${numBets}) | NUM=${actualNum} | Next Rs ${nextStake}×${numBets}`;
+      } else {
+        betState.lastResult = `LOSS | -Rs ${totalCost} | ${betType.toUpperCase()}=${actualNum} | Next Rs ${nextStake}`;
+      }
+    }
+
+    betState.pendingBet = null;
+    renderBetPanel();
   }
 
   function initFirebasePersistence() {
@@ -310,6 +554,15 @@
   }
 
   async function loadPersistedSnapshot() {
+    persistenceReady = false;
+    let restoredAnything = false;
+    const guardTimer = setTimeout(() => {
+      if (!persistenceReady) {
+        console.warn('Persistence load timeout, continuing with live sync.');
+        persistenceReady = true;
+      }
+    }, 4000);
+
     // Local backup restore (fast and resilient if Firebase read fails/blocks)
     try {
       const raw = localStorage.getItem(localTrackingKey());
@@ -318,52 +571,81 @@
         if (local?.stats?.total > 0) {
           stats = local.stats;
           renderStatsPanels();
+          restoredAnything = true;
+        }
+        if (local?.bet_state && typeof local.bet_state === 'object') {
+          betState = {
+            ...defaultBetState(),
+            ...local.bet_state,
+          };
+          betState.level = clampLevel(Number(betState.level || 0));
+          renderBetPanel();
+          restoredAnything = true;
         }
         if (Array.isArray(local?.history_rows) && local.history_rows.length) {
           historyCache = local.history_rows.slice(0, 50);
           renderHistoryFromCache();
+          restoredAnything = true;
         }
       }
     } catch (e) {
       console.warn('Local restore failed:', e);
     }
 
-    if (!firebaseDb) return;
+    if (!firebaseDb) {
+      if (!hasBootstrapped) hasBootstrapped = restoredAnything;
+      persistenceReady = true;
+      return;
+    }
+
     try {
       const snap = await firebaseDb.ref(trackingPath()).once('value');
       const data = snap.val();
-      if (!data) return;
 
-      isApplyingPersistedState = true;
+      if (data && !hasBootstrapped) {
+        isApplyingPersistedState = true;
 
-      if (data.stats) {
-        const incomingStats = {
-          total: Number(data.stats.total || 0),
-          num: {
-            hit: Number(data.stats.num?.hit || 0),
-            miss: Number(data.stats.num?.miss || 0),
-          },
-          size: {
-            hit: Number(data.stats.size?.hit || 0),
-            miss: Number(data.stats.size?.miss || 0),
-          },
-          color: {
-            hit: Number(data.stats.color?.hit || 0),
-            miss: Number(data.stats.color?.miss || 0),
-          },
-        };
+        if (data.stats) {
+          const incomingStats = {
+            total: Number(data.stats.total || 0),
+            num: {
+              hit: Number(data.stats.num?.hit || 0),
+              miss: Number(data.stats.num?.miss || 0),
+            },
+            size: {
+              hit: Number(data.stats.size?.hit || 0),
+              miss: Number(data.stats.size?.miss || 0),
+            },
+            color: {
+              hit: Number(data.stats.color?.hit || 0),
+              miss: Number(data.stats.color?.miss || 0),
+            },
+          };
 
-        // Keep richer dataset if current bootstrap/local state already has more rounds.
-        if ((incomingStats.total || 0) >= (stats.total || 0)) {
-          stats = incomingStats;
-          renderStatsPanels();
+          // Keep richer dataset if current bootstrap/local state already has more rounds.
+          if ((incomingStats.total || 0) >= (stats.total || 0)) {
+            stats = incomingStats;
+            renderStatsPanels();
+            restoredAnything = true;
+          }
         }
-      }
 
-      const rows = Array.isArray(data.history_rows) ? data.history_rows : [];
-      if (rows.length && rows.length >= historyCache.length) {
-        historyCache = rows.slice(0, 50);
-        renderHistoryFromCache();
+        const rows = Array.isArray(data.history_rows) ? data.history_rows : [];
+        if (rows.length && rows.length >= historyCache.length) {
+          historyCache = rows.slice(0, 50);
+          renderHistoryFromCache();
+          restoredAnything = true;
+        }
+
+        if (data.bet_state && typeof data.bet_state === 'object') {
+          betState = {
+            ...defaultBetState(),
+            ...data.bet_state,
+          };
+          betState.level = clampLevel(Number(betState.level || 0));
+          renderBetPanel();
+          restoredAnything = true;
+        }
       }
 
       // Prefer global shared tracking if it has richer totals/history.
@@ -393,6 +675,7 @@
         if ((incomingStats.total || 0) >= (stats.total || 0)) {
           stats = incomingStats;
           renderStatsPanels();
+          restoredAnything = true;
         }
       }
 
@@ -411,11 +694,18 @@
           eval: r.eval || null,
         }));
         renderHistoryFromCache();
+        restoredAnything = true;
       }
     } catch (e) {
       console.warn('Firebase load failed:', e);
     } finally {
       isApplyingPersistedState = false;
+      // NEVER downgrade hasBootstrapped — fetchData() may have already set it true
+      if (!hasBootstrapped) {
+        hasBootstrapped = restoredAnything;
+      }
+      persistenceReady = true;
+      clearTimeout(guardTimer);
     }
   }
 
@@ -455,23 +745,24 @@
   async function persistSnapshotToFirebase() {
     if (isApplyingPersistedState) return;
 
+    const snapshotPayload = {
+      stats,
+      bet_state: betState,
+      history_rows: historyCache.slice(0, 50),
+      game_code: currentGame,
+      source: 'web_dashboard',
+      updated_at: Date.now(),
+    };
+
     try {
-      localStorage.setItem(localTrackingKey(), JSON.stringify({
-        stats,
-        history_rows: historyCache.slice(0, 50),
-        updated_at: Date.now(),
-      }));
+      localStorage.setItem(localTrackingKey(), JSON.stringify(snapshotPayload));
     } catch (e) {
       console.warn('Local save failed:', e);
     }
 
     if (!firebaseDb) return;
     try {
-      await firebaseDb.ref(trackingPath()).set({
-        stats,
-        history_rows: historyCache.slice(0, 50),
-        updated_at: Date.now(),
-      });
+      await firebaseDb.ref(trackingPath()).set(snapshotPayload);
     } catch (e) {
       console.warn('Firebase save failed:', e);
     }
@@ -543,7 +834,7 @@
     currentInterval = MODE_INTERVALS[mode] || 30;
     hasBootstrapped = false;
     historyCache = [];
-    const modes = ['WinGo_30S', 'WinGo_1M', 'WinGo_3M'];
+    const modes = ['WinGo_30S', 'WinGo_1M', 'WinGo_3M', 'WinGo_5M'];
     modes.forEach(m => {
       const btn = document.getElementById(`btn-${m}`);
       if(m === mode) {
@@ -562,7 +853,9 @@
       size: { hit: 0, miss: 0 },
       color: { hit: 0, miss: 0 }
     };
+    betState = defaultBetState();
     renderStatsPanels();
+    renderBetPanel();
     document.getElementById('history-body').innerHTML = '<tr><td colspan="4" class="text-center py-12 text-gray-500">Syncing new timeframe...</td></tr>';
 
     loadPersistedSnapshot();
@@ -716,13 +1009,92 @@
     return { nextSize, nextColor, label };
   }
 
-  function generatePredictionV2(draws, currentPeriod) {
+  async function requestAdvancedModelPrediction(draws) {
+    try {
+      const response = await fetch(`${MODEL_API_BASE}/api/advanced/predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          game_code: currentGame,
+          draws: draws.slice(0, 500).map((d) => ({
+            issueNumber: String(d.issueNumber || d.period || ''),
+            number: Number(d.number),
+          })),
+        }),
+      });
+      if (!response.ok) return null;
+      const payload = await response.json();
+      return payload && typeof payload === 'object' ? payload : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function generatePredictionV2(draws, currentPeriod) {
     const windowed = draws.slice(0, 500);
     const nums = windowed.map(d => parseInt(d.number));
     const colors = nums.map(n => baseColorOf(n));
     const sizes = nums.map(n => SIZE_MAP[n]);
 
     const trend = projectUpcomingTrend(colors, sizes);
+
+    // Primary path: use trained advanced checkpoint via local model API.
+    const advanced = await requestAdvancedModelPrediction(draws);
+    if (advanced && advanced.status === 'ok' && Array.isArray(advanced.top3) && advanced.top3.length > 0) {
+      const top3 = advanced.top3
+        .map((x) => ({ number: Number(x.number), prob: Number(x.prob || 0) }))
+        .filter((x) => Number.isFinite(x.number) && x.number >= 0 && x.number <= 9)
+        .slice(0, 3);
+
+      if (top3.length > 0) {
+        const bestNum = top3[0].number;
+        const nextPeriodInt = BigInt(currentPeriod) + 1n;
+        const conf = Math.max(1, Math.min(99, (top3[0].prob || 0) * 100));
+
+        activePrediction = {
+          period: nextPeriodInt.toString(),
+          number: bestNum,
+          numbers: top3.map((x) => x.number),
+          size: SIZE_MAP[bestNum],
+          color: COLOR_MAP[bestNum],
+        };
+
+        document.getElementById('pred-period').textContent = activePrediction.period;
+
+        const ball = document.getElementById('pred-num-ball');
+        ball.textContent = bestNum;
+        ball.className = `ball text-4xl w-24 h-24 shadow-2xl border-4 border-gray-700 mx-auto ${getBallClass(bestNum)}`;
+
+        document.getElementById('pred-size').textContent = activePrediction.size;
+
+        const colEl = document.getElementById('pred-color');
+        colEl.textContent = activePrediction.color;
+        colEl.className = `text-xl font-extrabold ${activePrediction.color.includes('Red') ? 'neon-text-red' : 'neon-text-green'}`;
+
+        document.getElementById('pred-pattern').textContent = `ADV MODEL: ${advanced.model || currentGame} | ${trend.label}`;
+        document.getElementById('pred-conf').textContent = `${conf.toFixed(1)}%`;
+        document.getElementById('pred-conf-bar').style.width = `${conf}%`;
+
+        const model3El = document.getElementById('pred-model3');
+        if (model3El) {
+          const nums3 = top3.map((x) => x.number);
+          model3El.innerHTML = `${renderPredictionBalls(nums3)}<span class="text-gray-400">${nums3.join(' | ')}</span>`;
+        }
+
+        const alt500El = document.getElementById('pred-alt500');
+        if (alt500El) {
+          const details = top3
+            .map((x) => `${x.number}:${(x.prob * 100).toFixed(1)}%`)
+            .join(' | ');
+          alt500El.textContent = `CHECKPOINT ${advanced.model || currentGame} | ${details}`;
+        }
+
+        armNextBet();
+        persistSnapshotToFirebase();
+
+        return;
+      }
+    }
 
     const freq500 = {}; const freq50 = {}; const hot15 = {};
     nums.slice(0, 500).forEach(n => freq500[n] = (freq500[n] || 0) + 1);
@@ -824,6 +1196,9 @@
       const tags = top3Mixed.slice(0, 3).map((x) => `${x.tag}:${x.number}`);
       alt500El.textContent = tags.join(' | ');
     }
+
+    armNextBet();
+    persistSnapshotToFirebase();
   }
 
   function renderStatsPanels() {
@@ -850,14 +1225,10 @@
   function bootstrapHistoryAndStats(draws) {
     const evalByIssue = {};
 
-    stats = {
-      total: 0,
-      num: { hit: 0, miss: 0 },
-      size: { hit: 0, miss: 0 },
-      color: { hit: 0, miss: 0 }
-    };
-
-    // Replay recent rounds from older -> newer to build immediate history and accuracy.
+    // Replay recent rounds to build accuracy badges for the history table only.
+    // Stats (Total Tracked / Acc %) are intentionally NOT updated here — they
+    // count only live real-time predictions, preventing the counter from
+    // jumping to ~199 on startup.
     for (let i = draws.length - 2; i >= 0; i--) {
       const train = draws.slice(i + 1, i + 31);
       if (train.length < 8) continue;
@@ -868,20 +1239,12 @@
       const actBaseColor = COLOR_MAP[actualNum].includes('Red') ? 'Red' : 'Green';
       const predBaseColor = pred.color.includes('Red') ? 'Red' : 'Green';
 
-      const ev = {
+      evalByIssue[String(draws[i].issueNumber)] = {
         num: pred.number === actualNum,
         size: pred.size === actSize,
         color: predBaseColor === actBaseColor,
       };
-
-      evalByIssue[String(draws[i].issueNumber)] = ev;
-      stats.total += 1;
-      ev.num ? stats.num.hit++ : stats.num.miss++;
-      ev.size ? stats.size.hit++ : stats.size.miss++;
-      ev.color ? stats.color.hit++ : stats.color.miss++;
     }
-
-    renderStatsPanels();
 
     historyCache = draws.slice(0, 50).map((r) => {
       const num = parseInt(r.number);
@@ -974,7 +1337,7 @@
 
     const predictedNums = Array.isArray(activePrediction.numbers)
       ? activePrediction.numbers
-      : [activePrediction.number];
+      : [Number(activePrediction.number)];
 
     const res = {
       num: predictedNums.includes(actualNum),
@@ -982,9 +1345,14 @@
       color: predBaseColor === actBaseColor
     };
 
+    // Settle bet using enhanced logic
+    settleBetFromResult(res, actualNum, actSize, actBaseColor);
+
     res.num ? stats.num.hit++ : stats.num.miss++;
     res.size ? stats.size.hit++ : stats.size.miss++;
     res.color ? stats.color.hit++ : stats.color.miss++;
+
+    persistSnapshotToFirebase();
 
     // Render Updated Stats
     renderStatsPanels();
@@ -1129,13 +1497,20 @@
   // This bypasses any external DB delays and goes straight to the source.
   async function fetchData() {
     if(isFetching) return;
+    // Don't block live fetches — persistence restores in the background without
+    // disrupting real-time polling.  The old guard caused missed rounds while
+    // Firebase reads were in flight.
     isFetching = true;
         
     try {
+      // Use smaller first payload for fast mode switch, then expand to full history.
+      const initialPageSize = currentGame === 'WinGo_30S' ? 200 : 120;
+      const pageSize = hasBootstrapped ? 500 : initialPageSize;
       // Append timestamp to bust cache
-      const url = `${API_BASE}/WinGo/${currentGame}/GetHistoryIssuePage.json?pageSize=500&pageNo=1&_t=${Date.now()}`;
+      const url = `${API_BASE}/WinGo/${currentGame}/GetHistoryIssuePage.json?pageSize=${pageSize}&pageNo=1&_t=${Date.now()}`;
       const controller = new AbortController();
-      const timerId = setTimeout(() => controller.abort(), 5000);
+      const timeoutMs = hasBootstrapped ? 8000 : 12000;
+      const timerId = setTimeout(() => controller.abort(), timeoutMs);
       const res = await fetch(url, { cache: "no-store", signal: controller.signal });
       clearTimeout(timerId);
             
@@ -1145,6 +1520,7 @@
       const draws = json.data?.list;
             
       if(draws && draws.length > 0) {
+        fetchFailCount = 0;
         const currentIssue = draws[0].issueNumber;
 
         if (!hasBootstrapped) {
@@ -1162,10 +1538,17 @@
                     
           lastIssue = currentIssue;
           renderHistory(draws, evaluation);
-          generatePredictionV2(draws, currentIssue); // Prep for upcoming trend
+          await generatePredictionV2(draws, currentIssue); // Prep for upcoming trend
         }
       }
     } catch (e) {
+      fetchFailCount += 1;
+      if (fetchFailCount >= 3 && historyCache.length === 0) {
+        const tbody = document.getElementById('history-body');
+        if (tbody) {
+          tbody.innerHTML = '<tr><td colspan="4" class="text-center py-12 text-gray-500">Unable to sync this timeframe right now. Retrying...</td></tr>';
+        }
+      }
       console.error("Fetch Error (Ignored to maintain polling):", e);
     } finally {
       isFetching = false;
@@ -1177,8 +1560,81 @@
   setInterval(updateTimer, 1000);
   initFirebasePersistence();
   loadPersistedSnapshot();
+  renderBetPanel();
   updateTimer();
   fetchData(); // Kick off immediately
+
+  // ── Bet-type dropdown: user selection is source of truth ──
+  (function initBetTypeHandler() {
+    const sel = document.getElementById('bet-type');
+    if (!sel) return;
+    sel.addEventListener('change', function () {
+      sel._userControlled = true; // prevent renderBetPanel from overriding
+      betState.betType = sel.value;
+      armNextBet();              // re-arm with new type immediately
+      renderBetPanel();          // refresh display
+      persistSnapshotToFirebase();
+    });
+  })();
+
+  // ── Edit Balance Function ──
+  window.editBalance = function() {
+    const currentBalance = Number(betState.balance || 1000);
+    const newValue = prompt(`Edit Balance (Current: Rs ${currentBalance})\n\nMinimum: Rs 1\nEnter new balance amount:`, String(currentBalance));
+    
+    if (newValue !== null && newValue.trim()) {
+      const parsed = Number(newValue);
+      if (!isNaN(parsed) && parsed >= 1) {
+        betState.balance = parsed;
+        betState.level = 0; // Reset to level 0 when balance changes
+        renderBetPanel();
+        persistSnapshotToFirebase();
+        console.log(`✓ Balance updated to Rs ${parsed}`);
+      } else {
+        alert('Please enter a valid amount (minimum Rs 1)');
+      }
+    }
+  };
+
+  // ── Edit Bet Level Function ──
+  window.editLevel = function() {
+    const currentLevel = clampLevel(Number(betState.level || 0));
+    const maxLevel = computeMaxLevel(Number(betState.balance || 1000));
+    const currentStake = currentStakeForLevel(currentLevel);
+    
+    const newValue = prompt(
+      `Edit Bet Level\n\nCurrent: L${currentLevel} (Rs ${currentStake})\nMax Allowed: L${maxLevel}\n\nEnter new level (0-${maxLevel}):`,
+      String(currentLevel)
+    );
+    
+    if (newValue !== null && newValue.trim()) {
+      const parsed = Number(newValue);
+      if (!isNaN(parsed)) {
+        const clamped = clampLevel(Math.floor(parsed));
+        if (clamped > maxLevel) {
+          alert(`Level ${clamped} exceeds maximum allowed level L${maxLevel} for your balance.\n\nIncrease balance to unlock higher levels.`);
+        } else {
+          betState.level = clamped;
+          renderBetPanel();
+          persistSnapshotToFirebase();
+          const newStake = currentStakeForLevel(clamped);
+          console.log(`✓ Bet level updated to L${clamped} (Rs ${newStake})`);
+        }
+      } else {
+        alert('Please enter a valid number');
+      }
+    }
+  };
+
+  // ── Reset Balance to Initial (optional utility) ──
+  window.resetBalance = function() {
+    if (confirm('Reset balance to Rs 1000?')) {
+      betState = defaultBetState();
+      renderBetPanel();
+      persistSnapshotToFirebase();
+      console.log('✓ Balance reset to default');
+    }
+  };
 
 </script>
 </body>

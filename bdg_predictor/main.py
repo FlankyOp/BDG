@@ -17,11 +17,13 @@ from pattern_detector import ColorMapper, SizeMapper
 from predictor import Predictor
 from config import Config
 import firebase_client
+from telegram_sender import send_prediction # pyright: ignore[reportUnknownVariableType]
 try:
-    from sequence_model import get_global_model as _get_lstm_model
-    _LSTM_IMPORT_OK = True
+    from sequence_model import get_global_model
+    lstm_import_ok = True
 except Exception:
-    _LSTM_IMPORT_OK = False
+    get_global_model = None  # type: ignore
+    lstm_import_ok = False
 
 # Configure logging
 LOG_DIR = "logs"
@@ -55,10 +57,10 @@ class PredictionEngine:
         self.data_fetcher = DataFetcher()
         self.use_sample_data = use_sample_data
         self.prediction_history: List[Dict[str, Any]] = []
-        self.results_file = os.path.join(LOG_DIR, f"predictions_{datetime.now().strftime('%Y%m%d')}.json")
-        self.learning_file = os.path.join(LOG_DIR, "adaptive_weights.json")
-        self.game_code = Config.GAME_CODE
-        self.learning_profile = self._load_learning_profile()
+        self.results_file: str = os.path.join(LOG_DIR, f"predictions_{datetime.now().strftime('%Y%m%d')}.json")
+        self.learning_file: str = os.path.join(LOG_DIR, "adaptive_weights.json")
+        self.game_code: str = Config.GAME_CODE
+        self.learning_profile: Dict[str, float] = self._load_learning_profile()
         self.pending_feedback: Optional[Dict[str, Any]] = None
         self.pending_status_eval: Optional[Dict[str, Any]] = None
         self._firestore_lstm_bootstrapped: bool = False
@@ -156,6 +158,7 @@ class PredictionEngine:
         model context and confidence evolution. We use them as a low-priority
         auxiliary memory source during LSTM cold-start.
         """
+        # PredictionBlockDict type hint removed (unresolved import)
         log_files = sorted(glob.glob(os.path.join(LOG_DIR, "predictions_*.json")))
         if not log_files:
             return []
@@ -172,15 +175,15 @@ class PredictionEngine:
             if not isinstance(payload, list):
                 continue
 
-            for row in payload:
+            for row in payload:  # type: ignore
                 if not isinstance(row, dict):
                     continue
 
-                primary_block = row.get("primary_prediction", {})
+                primary_block = row.get("primary_prediction", {})  # type: ignore
                 if not isinstance(primary_block, dict):
                     continue
 
-                primary_number = self._safe_int(primary_block.get("number"))
+                primary_number = self._safe_int(primary_block.get("number")) # pyright: ignore[reportUnknownMemberType]
                 if primary_number is not None:
                     chronological_numbers.append(primary_number)
 
@@ -330,40 +333,41 @@ class PredictionEngine:
             self._apply_feedback(actual_number=int(latest_draws[0]["number"]))
 
         # Incremental LSTM training on the latest draw window.
-        if _LSTM_IMPORT_OK and Config.LSTM_ENABLED:
-            try:
-                lstm = _get_lstm_model()
-                if not lstm.model_available:
-                    pass  # torch not installed — silent no-op
-                elif not lstm.is_ready and not self._firestore_lstm_bootstrapped:
-                    # Cold-start memory blend:
-                    # 1) latest API draws (most trustworthy + freshest)
-                    # 2) Firestore historical actual draws
-                    # 3) detailed prediction logs (auxiliary long memory)
-                    fs_draws = firebase_client.fetch_firestore_history(limit=5000)
-                    log_draws = self._load_prediction_log_draws(max_entries=3000)
+        if lstm_import_ok and Config.LSTM_ENABLED:
+            lstm = get_global_model() # pyright: ignore[reportOptionalCall]
+            if lstm:
+                try:
+                    if not lstm.model_available:
+                        pass  # torch not installed — silent no-op
+                    elif not lstm.is_ready and not self._firestore_lstm_bootstrapped:
+                        # Cold-start memory blend:
+                        # 1) latest API draws (most trustworthy + freshest)
+                        # 2) Firestore historical actual draws
+                        # 3) detailed prediction logs (auxiliary long memory)
+                        fs_draws = firebase_client.fetch_firestore_history(limit=5000)
+                        log_draws = self._load_prediction_log_draws(max_entries=3000)
 
-                    combined_train_draws: List[int] = []
-                    combined_train_draws.extend(draws)
-                    if fs_draws:
-                        combined_train_draws.extend(fs_draws)
-                    if log_draws:
-                        combined_train_draws.extend(log_draws)
+                        combined_train_draws: List[int] = []
+                        combined_train_draws.extend(draws)
+                        if fs_draws:
+                            combined_train_draws.extend(fs_draws)
+                        if log_draws:
+                            combined_train_draws.extend(log_draws)
 
-                    # Keep a bounded memory window for stable CPU training time.
-                    combined_train_draws = combined_train_draws[:8000]
+                        # Keep a bounded memory window for stable CPU training time.
+                        combined_train_draws = combined_train_draws[:8000]
 
-                    logger.info(
-                        "[LSTM] Cold-start memory: API=%d + Firestore=%d + Logs=%d => train=%d",
-                        len(draws), len(fs_draws), len(log_draws), len(combined_train_draws),
-                    )
-                    lstm.train_full(combined_train_draws if combined_train_draws else draws)
-                    self._firestore_lstm_bootstrapped = True
-                else:
-                    lstm.update(draws)
-                    self._firestore_lstm_bootstrapped = True
-            except Exception as _lstm_exc:
-                logger.warning("[LSTM] Training step skipped: %s", _lstm_exc)
+                        logger.info(
+                            "[LSTM] Cold-start memory: API=%d + Firestore=%d + Logs=%d => train=%d",
+                            len(draws), len(fs_draws), len(log_draws), len(combined_train_draws),
+                        )
+                        lstm.train_full(combined_train_draws if combined_train_draws else draws)
+                        self._firestore_lstm_bootstrapped = True
+                    else:
+                        lstm.update(draws)
+                        self._firestore_lstm_bootstrapped = True
+                except Exception as _lstm_exc:
+                    logger.warning("[LSTM] Training step skipped: %s", _lstm_exc)
 
         # Persist this draw result to Firestore bdg_history for future training.
         # Always write to Firebase (for model training via Colab/notebook later)
@@ -386,6 +390,8 @@ class PredictionEngine:
         predictor = Predictor(draws, period_str, weight_profile=self.learning_profile)
         prediction = predictor.generate_prediction()
         print(predictor.format_output(prediction))
+
+        send_prediction(prediction)
 
         self._capture_pending_feedback(predictor, prediction)
         alternative = prediction.get("alternative_prediction") or prediction["primary_prediction"]
@@ -411,10 +417,10 @@ class PredictionEngine:
             },
             "created_at": prediction.get("timestamp"),
         }
-        
+
         self.prediction_history.append(prediction)
         self._save_prediction(prediction)
-        
+
         self._safe_firebase_push(
             "push_game_state",
             firebase_client.push_game_state,
@@ -423,7 +429,7 @@ class PredictionEngine:
             history_data=self._get_recent_history(period_str, latest_rows=latest_draws),
         )
         self._safe_firebase_push("push_prediction", firebase_client.push_prediction, self.game_code, prediction)
-        
+
         return prediction
 
     # ==================== SELF LEARNING ====================

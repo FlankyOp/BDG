@@ -310,22 +310,19 @@ def push_draw_to_firestore(period: str, number: int, color: str, size: str, game
         return
 
     try:
-        from firebase_admin import firestore as _fs  # type: ignore[import]
+        import firebase_admin
+        from firebase_admin import firestore
         doc_ref: Any = client.collection(FIRESTORE_HISTORY_COLLECTION).document(str(period))
-        
         doc_data = {
             "period": str(period),
             "number": int(number),
             "color": str(color),
             "size": str(size),
-            "ts": _fs.SERVER_TIMESTAMP,
+            "ts": firestore.SERVER_TIMESTAMP,
         }
-        
-        # Add game_code if provided
         if game_code:
             doc_data["game_code"] = str(game_code)
-        
-        doc_ref.set(doc_data, merge=False)  # type: ignore[attr-defined]
+        doc_ref.set(doc_data, merge=False)
         logger.debug("[Firestore] Stored draw period=%s number=%d game=%s", period, number, game_code or "default")
     except Exception as exc:
         logger.warning("[Firestore] Failed to push draw period=%s: %s", period, exc)
