@@ -44,7 +44,34 @@ class Predictor:
         # Initialize components
         self.pattern_detector = PatternDetector(draws)
         self.patterns = self.pattern_detector.analyze_all_patterns()
+        self.features = self._feature_engineering(draws)
         self.probability_engine = ProbabilityEngine(draws, self.patterns, weight_profile=weight_profile)
+
+    # ==================== FEATURE ENGINEERING ====================
+
+    def _feature_engineering(self, draws: List[int]) -> Dict[str, Any]:
+        """Extract simple statistical features from the draw sequence."""
+        if not draws:
+            return {}
+        recent = draws[:20]
+        counts = {n: recent.count(n) for n in range(10)}
+        total = len(recent)
+        freq = {n: counts[n] / total for n in range(10)}
+        # Simple streak detection
+        streak_num = draws[0]
+        streak_len = 1
+        for d in draws[1:]:
+            if d == streak_num:
+                streak_len += 1
+            else:
+                break
+        return {
+            "frequency": freq,
+            "counts": counts,
+            "streak_number": streak_num,
+            "streak_length": streak_len,
+            "sample_size": total,
+        }
 
     def _prediction_entry(self, prediction: Dict[str, Any]) -> Dict[str, Any]:
         accuracy_percentage = prediction.get("accuracy_percentage")
@@ -238,13 +265,14 @@ class Predictor:
         primary, alternative, backup = self._select_prediction_slots(predictions)
         alt = alternative or primary
         backup_pick = backup or alt
+        acc_val = float(primary.get('accuracy_value', 0.0))
         return {
             "best_bet": f"NUMBER {primary['number']} ({primary['color']}, {primary['size']})",
             "alternative_bet": f"NUMBER {alt['number']} ({alt['color']}, {alt['size']})",
             "backup_bet": f"NUMBER {backup_pick['number']} ({backup_pick['color']}, {backup_pick['size']})",
             "combined_strategy": (
                 f"Play {primary['number']} with "
-                f"{primary['accuracy_percentage']:.0f}% "
+                f"{acc_val:.0f}% "
                 f"confidence. Backup with {alt['number']} if needed."
             )
         }

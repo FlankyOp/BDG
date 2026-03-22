@@ -228,6 +228,35 @@ def push_hit_miss_status(game_code: str, status_data: Dict[str, Any]) -> None:
         logger.error(f"Error pushing hit/miss status to Firebase: {e}")
 
 
+def get_hit_miss_summary(game_code: str) -> Dict[str, Any]:
+    """Fetch the latest global hit/miss summary from `/hit_miss/{game_code}/summary`."""
+    if not _is_valid_game_code(game_code):
+        return {}
+    if not init_firebase():
+        return {}
+    
+    result = {}
+    def _fetch():
+        nonlocal result
+        try:
+            ref = db.reference(_firebase_path(HIT_MISS_PATH + "/summary", game_code))  # type: ignore[attr-defined]
+            payload = ref.get()  # type: ignore[attr-defined]
+            result = cast(Dict[str, Any], payload if isinstance(payload, dict) else {})
+        except Exception as exc:
+            logger.error("Error reading hit/miss summary from Firebase: %s", exc)
+
+    import threading
+    t = threading.Thread(target=_fetch)
+    t.start()
+    t.join(timeout=2.0)
+    
+    if t.is_alive():
+        logger.warning(f"Firebase get() timed out for {game_code} stats")
+        return {}
+        
+    return result
+
+
 # ============================================================
 # Cloud Firestore — bdg_history collection
 # ============================================================
@@ -318,7 +347,7 @@ def push_draw_to_firestore(period: str, number: int, color: str, size: str, game
             "number": int(number),
             "color": str(color),
             "size": str(size),
-            "ts": firestore.SERVER_TIMESTAMP,
+            "ts": firestore.SERVER_TIMESTAMP,  # type: ignore[attr-defined]
         }
         if game_code:
             doc_data["game_code"] = str(game_code)

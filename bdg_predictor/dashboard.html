@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlankyOp · Unified Dashboard</title>
+  <link rel="stylesheet" href="dashboard.css">
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     NAVBAR
+══════════════════════════════════════════════ -->
+<nav id="navbar">
+  <div class="nav-logo">FLANKY<span class="accent">GoD</span></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="showView('home')" id="btn-home">🏠 HOME</button>
+    <button class="nav-tab" onclick="showView('engine')" id="btn-engine">⚡ ENGINE <span class="badge">V12</span></button>
+    <button class="nav-tab" onclick="showView('analytics')" id="btn-analytics">📊 ANALYTICS <span class="badge">ML</span></button>
+    <button class="nav-tab" onclick="showView('history')" id="btn-history">📋 HISTORY</button>
+  </div>
+  <div class="nav-status">
+    <div class="conn-label">
+      <span class="conn-dot trying" id="conn-dot"></span>
+      <span id="conn-txt">Connecting...</span>
+    </div>
+    <div class="live-period" id="live-period">——</div>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════
+     TICKER
+══════════════════════════════════════════════ -->
+<div id="ticker">
+  <div class="ticker-label">LIVE DRAWS</div>
+  <div id="ticker-track">
+    <div id="ticker-inner">
+      <span class="tick-meta">Initialising...</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     CONTENT
+══════════════════════════════════════════════ -->
+<div id="content">
+
+  <!-- ════════ VIEW: HOME ════════ -->
+  <div class="view" id="view-home">
+    <div class="home-hero">
+      <h1>FLANKY<span class="accent">GoD</span> UNIFIED DASHBOARD</h1>
+      <p>SELECT A TOOL BELOW · ALL VIEWS SHARE LIVE DATA</p>
+    </div>
+
+    <div class="card-grid">
+      <div class="dash-card c-a" onclick="showView('engine')">
+        <div class="card-icon">⚡</div>
+        <div class="card-title">BDG ENGINE</div>
+        <div class="card-desc">Full live prediction. LSTM + pattern analysis, Martingale auto-bet, per-round accuracy tracking, top-3 predictions.</div>
+        <div class="card-tags">
+          <span class="tag tag-green">LIVE API</span>
+          <span class="tag tag-green">LSTM</span>
+          <span class="tag tag-gold">MARTINGALE</span>
+        </div>
+        <button class="open-btn">▶ OPEN ENGINE</button>
+      </div>
+
+      <div class="dash-card c-b" onclick="showView('analytics')">
+        <div class="card-icon">📊</div>
+        <div class="card-title">ANALYTICS</div>
+        <div class="card-desc">Hot/cold numbers, streak detector, color & size distribution, pattern recognition, ML-weighted scoring.</div>
+        <div class="card-tags">
+          <span class="tag tag-cyan">PATTERNS</span>
+          <span class="tag tag-cyan">STREAKS</span>
+          <span class="tag tag-violet">ML WEIGHTS</span>
+        </div>
+        <button class="open-btn">▶ OPEN ANALYTICS</button>
+      </div>
+
+      <div class="dash-card c-c" onclick="showView('history')">
+        <div class="card-icon">📋</div>
+        <div class="card-title">HISTORY</div>
+        <div class="card-desc">Full draw history table with issue number, color, size, pattern, and streak data for up to 200 draws.</div>
+        <div class="card-tags">
+          <span class="tag tag-gold">200 DRAWS</span>
+          <span class="tag tag-gold">PATTERNS</span>
+        </div>
+        <button class="open-btn">▶ OPEN HISTORY</button>
+      </div>
+    </div>
+
+    <div class="home-recent">
+      <div class="section-title">⬡ LATEST DRAWS — WinGo 1M</div>
+      <div class="recent-chips" id="home-chips">
+        <span class="text-dim text-xs">Loading...</span>
+      </div>
+    </div>
+  </div>
+  <!-- end home -->
+
+  <!-- ════════ VIEW: ENGINE ════════ -->
+  <div class="view" id="view-engine">
+    <!-- Stats Row: full-width -->
+    <div class="engine-stats">
+      <div class="stat-card">
+        <div class="stat-label">Total Tracked</div>
+        <div class="stat-val text-neon" id="stat-total">0</div>
+        <div class="stat-sub" id="stat-total-sub" style="font-size:9px;color:var(--dim);margin-top:4px">Global Accuracy Server</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">🔢 Number Acc <span class="text-dim2" style="font-size:9px">(any of top-3)</span></div>
+        <div class="stat-val val-red" id="stat-num-acc">0%</div>
+        <div class="stat-sub" id="stat-num-sub">0 H / 0 M</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">📏 Size Acc</div>
+        <div class="stat-val val-red" id="stat-size-acc">0%</div>
+        <div class="stat-sub" id="stat-size-sub">0 H / 0 M</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">🎨 Color Acc</div>
+        <div class="stat-val val-red" id="stat-color-acc">0%</div>
+        <div class="stat-sub" id="stat-color-sub">0 H / 0 M</div>
+      </div>
+    </div>
+
+    <!-- Left: Prediction -->
+    <div class="engine-left">
+      <div class="pred-main">
+        <div class="flex items-center justify-between" style="margin-bottom:14px">
+          <div>
+            <div class="pred-target">ACTIVE PREDICTION</div>
+            <div class="pred-issue" id="pred-issue">Waiting...</div>
+          </div>
+          <div class="timer-wrap">
+            <div class="timer-svg-wrap">
+              <svg class="timer-svg" viewBox="0 0 56 56">
+                <circle class="timer-circle" cx="28" cy="28" r="24"/>
+                <circle class="timer-progress" id="timer-arc" cx="28" cy="28" r="24"
+                  stroke-dasharray="150.796" stroke-dashoffset="0"/>
+              </svg>
+              <div class="timer-num" id="timer-num">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pred-ball-wrap">
+          <div class="pred-ball-big br" id="pred-ball">?</div>
+        </div>
+
+        <div class="pred-sub-row">
+          <div class="pred-sub-card">
+            <div class="pred-sub-label">Size</div>
+            <div class="pred-sub-val" id="pred-size">—</div>
+          </div>
+          <div class="pred-sub-card">
+            <div class="pred-sub-label">Color</div>
+            <div class="pred-sub-val" id="pred-color">—</div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px">
+          <div class="flex items-center justify-between" style="margin-bottom:6px">
+            <span class="text-xs text-dim">CONFIDENCE</span>
+            <span class="text-xs text-neon" id="pred-conf-pct">0%</span>
+          </div>
+          <div class="conf-track"><div class="conf-fill" id="pred-conf-bar" style="width:0%;background:var(--neon)"></div></div>
+        </div>
+
+        <div style="margin-top:14px">
+          <div class="text-xs text-dim" style="margin-bottom:6px;letter-spacing:2px">TOP 3 CANDIDATES</div>
+          <div class="top3-row" id="pred-top3">—</div>
+        </div>
+
+        <div style="margin-top:12px">
+          <div class="text-xs text-dim" style="margin-bottom:6px;letter-spacing:2px">PATTERN DETECTED</div>
+          <div class="text-sm" id="pred-pattern">—</div>
+        </div>
+
+        <div style="margin-top:12px">
+          <div class="text-xs text-dim" style="margin-bottom:6px;letter-spacing:2px">SOURCES</div>
+          <div id="pred-sources">—</div>
+        </div>
+      </div>
+
+      <!-- Bet Assistant -->
+      <div class="bet-card">
+        <div class="flex items-center justify-between" style="margin-bottom:12px">
+          <div class="section-title" style="margin-bottom:0">BET ASSISTANT (SIM)</div>
+          <select id="bet-type" class="game-btn" style="border-radius:4px;padding:4px 8px;font-size:10px" onchange="updateBetDisplay()">
+            <option value="number">Number (9× top-3)</option>
+            <option value="size" selected>Size (1.95×)</option>
+            <option value="color">Color (1.95×)</option>
+          </select>
+        </div>
+        <div class="bet-grid">
+          <div>
+            <div class="bet-label">Balance (Rs)</div>
+            <input id="bet-balance-input" type="number" min="0" value="1000"
+              style="background:var(--panel2);border:1px solid var(--border2);color:var(--neon);
+                     border-radius:4px;padding:4px 8px;width:100%;font-family:inherit;font-size:13px;
+                     font-weight:700;outline:none;"
+              onchange="applyBetSettings()">
+          </div>
+          <div>
+            <div class="bet-label">Stake / number (Rs)</div>
+            <input id="bet-stake-input" type="number" min="1" value="10"
+              style="background:var(--panel2);border:1px solid var(--border2);color:var(--gold);
+                     border-radius:4px;padding:4px 8px;width:100%;font-family:inherit;font-size:13px;
+                     font-weight:700;outline:none;"
+              onchange="applyBetSettings()">
+          </div>
+        </div>
+        <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span class="text-xs text-dim2" id="bet-next-label">Total outlay: Rs 30</span>
+          <button onclick="applyBetSettings()" class="btn btn-green" style="padding:3px 10px;font-size:9px">✓ APPLY</button>
+        </div>
+
+        <!-- Live bet plan -->
+        <div id="bet-plan-display" style="margin-top:10px;padding:10px;background:var(--panel2);border-radius:8px;border:1px solid var(--border2);min-height:54px">
+          <span class="text-xs text-dim">Waiting for prediction...</span>
+        </div>
+
+        <div class="mt-2 text-xs" id="bet-last" style="margin-top:8px">No bet settled yet.</div>
+      </div>
+    </div>
+
+    <!-- Right: Live Stream -->
+    <div class="engine-right">
+      <div class="panel" style="flex:1; display:flex; flex-direction:column;">
+        <div class="panel-header flex items-center justify-between">
+          <span>LIVE RESULT STREAM</span>
+          <div class="game-sel" style="padding:0;border:none;gap:4px">
+            <button class="game-btn active" onclick="switchGame('WinGo_30S',this)">30s</button>
+            <button class="game-btn active" onclick="switchGame('WinGo_1M',this)">1m</button>
+            <button class="game-btn" onclick="switchGame('WinGo_3M',this)">3m</button>
+            <button class="game-btn" onclick="switchGame('WinGo_5M',this)">5m</button>
+          </div>
+        </div>
+        <div class="live-stream-table" style="flex:1">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>PERIOD</th>
+                <th>RESULT</th>
+                <th>SIZE</th>
+                <th>PRED. MATRIX</th>
+              </tr>
+            </thead>
+            <tbody id="stream-body">
+              <tr><td colspan="4" style="text-align:center;padding:28px;color:var(--dim)">Syncing live data...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+  <!-- end engine -->
+
+  <!-- ════════ VIEW: ANALYTICS ════════ -->
+  <div class="view" id="view-analytics">
+    <!-- Hot/Cold -->
+    <div class="panel analytics-full">
+      <div class="panel-header">🔥 HOT / COLD NUMBERS</div>
+      <div style="padding:18px">
+        <div class="hc-grid" id="hc-grid">
+          <span class="text-dim text-xs">Loading...</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Distribution charts -->
+    <div class="panel">
+      <div class="panel-header">🎨 COLOR DISTRIBUTION</div>
+      <div style="padding:18px" id="color-bars"></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">📏 SIZE DISTRIBUTION</div>
+      <div style="padding:18px" id="size-bars"></div>
+    </div>
+
+    <div class="panel analytics-full">
+      <div class="panel-header">🔢 NUMBER FREQUENCY</div>
+      <div style="padding:18px" id="num-bars"></div>
+    </div>
+
+    <!-- Streaks -->
+    <div class="panel analytics-full">
+      <div class="panel-header">🔁 STREAKS &amp; PATTERNS</div>
+      <div style="padding:18px" id="streaks-content">
+        <span class="text-dim text-xs">Loading...</span>
+      </div>
+    </div>
+
+    <!-- ML Prediction score -->
+    <div class="panel analytics-full">
+      <div class="panel-header">🧠 ML HYBRID SCORE</div>
+      <div style="padding:18px" id="ml-score-content">
+        <span class="text-dim text-xs">Loading...</span>
+      </div>
+    </div>
+  </div>
+  <!-- end analytics -->
+
+  <!-- ════════ VIEW: HISTORY ════════ -->
+  <div class="view" id="view-history">
+    <div class="flex items-center justify-between" style="margin-bottom:18px">
+      <div class="section-title" style="margin-bottom:0">📋 FULL DRAW HISTORY</div>
+      <div class="text-xs text-dim" id="hist-count">— records</div>
+    </div>
+    <div class="hist-table-wrap">
+      <div class="hist-scroll">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>PERIOD</th>
+              <th>NUMBER</th>
+              <th>COLOR</th>
+              <th>SIZE</th>
+              <th>STREAK</th>
+              <th>PATTERN</th>
+              <th>TIME</th>
+            </tr>
+          </thead>
+          <tbody id="hist-body">
+            <tr><td colspan="8" style="text-align:center;padding:28px;color:var(--dim)">Loading history...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <!-- end history -->
+
+</div><!-- #content -->
+
+<script>
+/* ══════════════════════════════════════════════
+   CONFIG
+══════════════════════════════════════════════ */
+const MODEL_API = 'http://127.0.0.1:8787';
+
+const SIZE_MAP  = {0:'Small',1:'Small',2:'Small',3:'Small',4:'Small',5:'Big',6:'Big',7:'Big',8:'Big',9:'Big'};
+const COLOR_MAP = {0:'Red',1:'Green',2:'Red',3:'Green',4:'Red',5:'Green',6:'Red',7:'Green',8:'Red',9:'Green'};
+const COLOR_FULL_MAP = {0:'Red-Violet',1:'Green',2:'Red',3:'Green',4:'Red',5:'Green-Violet',6:'Red',7:'Green',8:'Red',9:'Green'};
+
+/* ball CSS class */
+function ballClass(n) {
+  if (n === 0 || n === 5) return n === 0 ? 'bv' : 'bgv';
+  return [1,3,7,9].includes(n) ? 'bg' : 'br';
+}
+function tickBallClass(n) {
+  if (n === 0) return 'tc-violet';
+  if (n === 5) return 'tc-gv';
+  if ([2,4,6,8].includes(n)) return 'tc-red';
+  return 'tc-green';
+}
+
+/* ══════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════ */
+let gData       = [];       // processed draw records
+let rawDraws    = [];       // raw API draws
+let currentGame = 'WinGo_1M';
+let lastIssue   = null;
+let isFetching  = false;
+let hasBooted   = false;
+let activePred  = null;
+
+const stats = {
+  total: 0,
+  num:   { hit:0, miss:0 },
+  size:  { hit:0, miss:0 },
+  color: { hit:0, miss:0 }
+};
+
+const bet = {
+  balance:    1000,
+  baseStake:  10,
+  stake:      10,
+  step:       0,
+  streak:     0
+};
+
+// ─── LOAD PERSISTED BET FROM LOCALSTORAGE ───
+function loadPersisted() {
+  try {
+    const b = JSON.parse(localStorage.getItem('fg_bet') || 'null');
+    if (b) {
+      bet.balance   = b.balance   ?? 1000;
+      bet.baseStake = b.baseStake ?? 10;
+      bet.stake     = b.stake     ?? 10;
+      bet.step      = b.step      ?? 0;
+    }
+  } catch(e) {}
+}
+function savePersisted() {
+  try {
+    localStorage.setItem('fg_bet', JSON.stringify({ balance: bet.balance, baseStake: bet.baseStake, stake: bet.stake, step: bet.step }));
+  } catch(e) {}
+}
+loadPersisted();
+
+/* ══════════════════════════════════════════════
+   VIEW ROUTING
+══════════════════════════════════════════════ */
+function showView(name) {
+  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('view-' + name).classList.add('active');
+  document.getElementById('btn-' + name).classList.add('active');
+}
+
+/* ══════════════════════════════════════════════
+   TICKER & TIMER
+══════════════════════════════════════════════ */
+let tickOffset = 0, tickWidth = 0;
+
+function buildTicker(draws) {
+  const inner = document.getElementById('ticker-inner');
+  const items = draws.slice(0, 40).map(d => {
+    const n = parseInt(d.number);
+    const s = SIZE_MAP[n];
+    return `<span class="tick-item">
+      <span class="tick-ball ${tickBallClass(n)}">${n}</span>
+      <span class="tick-meta">${String(d.issueNumber).slice(-6)}</span>
+      <span class="tick-meta" style="color:${s==='Big'?'var(--gold)':'var(--cyan)'}">${s}</span>
+    </span>`;
+  }).join('<span class="tick-sep">·</span>');
+  inner.innerHTML = items + items;
+  tickWidth = inner.scrollWidth / 2;
+  tickOffset = 0;
+}
+
+(function animateTicker() {
+  tickOffset -= 0.55;
+  if (Math.abs(tickOffset) >= tickWidth && tickWidth > 0) tickOffset = 0;
+  document.getElementById('ticker-inner').style.transform = `translateX(${tickOffset}px)`;
+  requestAnimationFrame(animateTicker);
+})();
+
+function getGameInterval(game) {
+  if (game.includes('30S')) return 30;
+  if (game.includes('1M'))  return 60;
+  if (game.includes('3M'))  return 180;
+  if (game.includes('5M'))  return 300;
+  return 60;
+}
+
+function updateTimer() {
+  if (isFetching || !hasBooted) return;
+  const interval = getGameInterval(currentGame);
+  const now = new Date();
+  
+  // Calculate remaining seconds until the next boundary based on system clock
+  const currentSecs = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+  const remaining = interval - (currentSecs % interval);
+  
+  const timerNum = document.getElementById('timer-num');
+  const timerArc = document.getElementById('timer-arc');
+  
+  if (timerNum) timerNum.textContent = remaining;
+  
+  if (timerArc) {
+    const pct = remaining / interval;
+    const dash = 150.796; // 2 * pi * r (24)
+    timerArc.style.strokeDashoffset = dash * (1 - pct);
+    
+    // Color change based on time
+    if (remaining <= 5) {
+      timerArc.style.stroke = 'var(--red)';
+      timerNum.style.color  = 'var(--red)';
+    } else {
+      timerArc.style.stroke = 'var(--neon)';
+      timerNum.style.color  = 'var(--text)';
+    }
+  }
+}
+setInterval(updateTimer, 1000);
+
+/* ══════════════════════════════════════════════
+   DATA FETCHING
+══════════════════════════════════════════════ */
+function setConn(state, txt) {
+  document.getElementById('conn-dot').className = `conn-dot ${state}`;
+  document.getElementById('conn-txt').textContent = txt;
+}
+
+async function fetchData() {
+  if (isFetching) return;
+  isFetching = true;
+  try {
+    const size = hasBooted ? 100 : 100; // fetch exactly 100 records as requested
+    const url  = `${MODEL_API}/api/history?game=${currentGame}&pageSize=${size}&_t=${Date.now()}`;
+    const res  = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) throw new Error('API ' + res.status);
+    const json = await res.json();
+    const draws = json?.data?.list || json?.list || null;
+    if (!draws || !draws.length) throw new Error('No data');
+
+    const latest = draws[0].issueNumber;
+
+    if (!hasBooted) {
+      processData(draws);
+      hasBooted = true;
+      renderAll();
+    }
+
+    if (latest !== lastIssue) {
+      // Evaluate last prediction
+      if (lastIssue !== null && activePred) evaluatePrediction(parseInt(draws[0].number));
+      lastIssue = latest;
+      rawDraws  = draws;
+      processData(draws);
+      buildTicker(draws);
+      renderHomeChips(draws);
+      document.getElementById('live-period').textContent = String(latest).slice(-8);
+      renderStream(draws);
+      fetchAndRenderPrediction(draws, latest);
+      fetchGlobalStats();
+      renderAnalytics();
+      renderHistoryTable();
+    }
+
+    setConn('live', `Live · ${currentGame.replace('WinGo_','').replace('M','m').replace('S','s')}`);
+  } catch (e) {
+    setConn('err', 'API Error');
+    console.error(e);
+  } finally {
+    isFetching = false;
+  }
+}
+
+/* ══════════════════════════════════════════════
+   PROCESS RAW DATA
+══════════════════════════════════════════════ */
+function processData(draws) {
+  gData = draws.map((d, i, arr) => {
+    const n   = parseInt(d.number);
+    const iss = String(d.issueNumber);
+    // issueNumber format: YYYYMMDDHHMMSSXXX — extract HH:MM:SS from chars 8-13
+    let time = '';
+    if (iss.length >= 14) {
+      const hh = iss.slice(8, 10), mm = iss.slice(10, 12), ss = iss.slice(12, 14);
+      time = `${hh}:${mm}:${ss}`;
+    }
+    return {
+      issue:   d.issueNumber,
+      number:  n,
+      color:   COLOR_MAP[n],
+      size:    SIZE_MAP[n],
+      streak:  getStreak(n, arr, i),
+      pattern: getPattern(n, arr, i),
+      time
+    };
+  });
+}
+
+function getStreak(n, arr, idx) {
+  let s = 1;
+  for (let i = idx + 1; i < arr.length; i++) {
+    if (parseInt(arr[i].number) === n) s++; else break;
+  }
+  return s;
+}
+function getPattern(n, arr, idx) {
+  if (idx >= arr.length - 1) return '—';
+  const prev = parseInt(arr[idx + 1].number);
+  if (n === prev) return 'Repeat';
+  if ((n % 2) === (prev % 2)) return 'Even/Odd';
+  return 'Alternating';
+}
+
+/* ══════════════════════════════════════════════
+   HOME CHIPS
+══════════════════════════════════════════════ */
+function renderHomeChips(draws) {
+  const el = document.getElementById('home-chips');
+  el.innerHTML = draws.slice(0, 20).map(d => {
+    const n = parseInt(d.number);
+    const s = SIZE_MAP[n];
+    return `<div class="r-chip">
+      <span class="r-chip-period">${String(d.issueNumber).slice(-6)}</span>
+      <span class="ball ball-sm ${ballClass(n)}">${n}</span>
+      <span class="text-xs" style="color:${s==='Big'?'var(--gold)':'var(--cyan)'}">${s}</span>
+    </div>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════
+   LIVE STREAM TABLE
+══════════════════════════════════════════════ */
+// Store last 30 accuracy results alongside rows
+const rowResults = [];
+
+function renderStream(draws) {
+  const tb = document.getElementById('stream-body');
+  tb.innerHTML = draws.slice(0, 30).map((d, i) => {
+    const n = parseInt(d.number);
+    const s = SIZE_MAP[n];
+    const acc = rowResults[i];
+    let matrixHtml = '<span class="text-dim">—</span>';
+    if (acc !== undefined) {
+      matrixHtml = `<div class="matrix-wrap">
+        <div class="matrix-chip ${acc.size ? 'hit' : ''}">S</div>
+        <div class="matrix-chip ${acc.color ? 'hit' : ''}">C</div>
+        <div class="matrix-chip ${acc.num ? 'hit' : ''}">N</div>
+      </div>`;
+    }
+    return `<tr>
+      <td class="text-dim2">${String(d.issueNumber).slice(-6)}</td>
+      <td><span class="ball ball-sm ${ballClass(n)}">${n}</span></td>
+      <td><span class="bdg ${s==='Big'?'bdg-b':'bdg-s'}">${s}</span></td>
+      <td>${matrixHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════
+   PREDICTION ENGINE
+══════════════════════════════════════════════ */
+async function fetchAndRenderPrediction(draws, targetIssue) {
+  try {
+    const res  = await fetch(`${MODEL_API}/api/advanced/predict?game=${currentGame}&_t=${Date.now()}`);
+    if (!res.ok) throw new Error('Predict error');
+    const json = await res.json();
+    // Normalise the server response into our common format
+    const top3      = json.top3 || [];
+    const bestEntry = top3[0] || {};
+    // Pull pattern description from nested patterns object
+    const cp = json.patterns?.color_patterns;
+    const sp = json.patterns?.size_patterns;
+    let pattern = 'Analysing...';
+    if (cp?.pattern_type)  pattern = cp.pattern_type;
+    else if (sp?.pattern_type) pattern = sp.pattern_type;
+    // Build colour streak label
+    const recentColors = json.patterns?.recent_colors || [];
+    let streakLen = 0;
+    if (recentColors.length) {
+      const first = recentColors[0];
+      for (const c of recentColors) { if (c === first) streakLen++; else break; }
+      if (streakLen >= 2) pattern += ` (×${streakLen} ${first} streak)`;
+    }
+    const normalized = {
+      number:        bestEntry.number,
+      numbers:       top3.map(t => t.number),
+      probabilities: top3.map(t => Math.round((t.prob || 0) * 100)),
+      size:          bestEntry.size,
+      color:         bestEntry.color,
+      confidence:    Math.round((top3[0]?.prob || 0.5) * 100),
+      pattern,
+      sources:       ['lstm', 'markov', 'freq']
+    };
+    activePred = normalized;
+    renderPrediction(normalized, targetIssue, draws);
+  } catch(e) {
+    // Fallback: local hybrid
+    const pred = localHybridPredict(draws);
+    activePred = pred;
+    renderPrediction(pred, targetIssue, draws);
+  }
+}
+
+function localHybridPredict(draws) {
+  if (!draws || draws.length < 2) return { number:5, numbers:[5,1,3], size:'Big', color:'Green-Violet', confidence:40, pattern:'Insufficient data', sources:['local'] };
+
+  const counts = Array(10).fill(0);
+  const recent = draws.slice(0, Math.min(30, draws.length));
+  recent.forEach(d => counts[parseInt(d.number)]++);
+
+  // Inverse frequency (prefer cold)
+  const scores = counts.map((c, i) => ({ i, s: 1 / (c + 1), c }));
+  scores.sort((a, b) => b.s - a.s);
+  const top3 = scores.slice(0, 3);
+  const best = top3[0].i;
+  const total = recent.length;
+
+  // Pattern detection — look at last 8
+  const colors = recent.slice(0, 8).map(d => COLOR_MAP[parseInt(d.number)]);
+  const sizes  = recent.slice(0, 8).map(d => SIZE_MAP[parseInt(d.number)]);
+  let pattern  = 'Frequency-based';
+
+  // Streak detection
+  if (colors[0] === colors[1] && colors[1] === colors[2]) {
+    let streakLen = 1;
+    for (let i = 1; i < colors.length; i++) { if (colors[i] === colors[0]) streakLen++; else break; }
+    pattern = `${colors[0]} streak ×${streakLen} → expect flip`;
+  } else if (sizes[0] === sizes[1] && sizes[1] === sizes[2]) {
+    let streakLen = 1;
+    for (let i = 1; i < sizes.length; i++) { if (sizes[i] === sizes[0]) streakLen++; else break; }
+    pattern = `${sizes[0]} streak ×${streakLen} → expect flip`;
+  } else if (colors[0] !== colors[1] && colors[1] !== colors[2] && colors[2] !== colors[3]) {
+    pattern = 'ABAB color alternating';
+  } else if (sizes[0] !== sizes[1] && sizes[1] !== sizes[2]) {
+    pattern = 'ABAB size alternating';
+  }
+
+  const conf = Math.min(35 + Math.round((total / 30) * 20) + Math.floor(Math.random() * 10), 75);
+
+  return {
+    number:      best,
+    numbers:     top3.map(t => t.i),
+    probabilities: top3.map((t, i) => Math.max(conf - i * 9, 5)),
+    size:        SIZE_MAP[best],
+    color:       COLOR_FULL_MAP[best],
+    confidence:  conf,
+    pattern,
+    sources:     ['freq-inverse', 'streak-detect', 'local']
+  };
+}
+
+function renderPrediction(pred, targetIssue, draws) {
+  if (!pred) return;
+
+  // Normalise API response (handles both server format and local format)
+  const n   = pred.number ?? pred.predicted_number ?? pred.top1 ?? 5;
+  const sz  = pred.size  ?? pred.predicted_size  ?? SIZE_MAP[n];
+  const col = pred.color ?? pred.predicted_color ?? COLOR_FULL_MAP[n];
+  const conf= pred.confidence ?? pred.confidence_score ?? 50;
+  const pat = pred.pattern ?? pred.detected_pattern ?? '—';
+
+  // nums: always ensure we have a real array
+  let nums = [];
+  if (Array.isArray(pred.numbers) && pred.numbers.length)             nums = pred.numbers;
+  else if (Array.isArray(pred.top_numbers) && pred.top_numbers.length) nums = pred.top_numbers;
+  else if (n !== undefined)                                             nums = [n, (n+1)%10, (n+2)%10];
+
+  const probs = pred.probabilities ?? pred.top_probabilities ?? nums.map((_,i) => Math.max(conf - i*9, 5));
+
+  document.getElementById('pred-issue').textContent  = `#${String(targetIssue).slice(-6)}`;
+  document.getElementById('pred-ball').className     = `pred-ball-big ${ballClass(n)}`;
+  document.getElementById('pred-ball').textContent   = n;
+  document.getElementById('pred-size').textContent   = sz;
+  document.getElementById('pred-color').textContent  = col;
+  document.getElementById('pred-conf-pct').textContent = `${conf}%`;
+  document.getElementById('pred-conf-bar').style.width      = `${conf}%`;
+  document.getElementById('pred-conf-bar').style.background = conf >= 60 ? 'var(--neon)' : conf >= 40 ? 'var(--gold)' : 'var(--red)';
+  document.getElementById('pred-pattern').textContent = pat;
+
+  // Top-3
+  document.getElementById('pred-top3').innerHTML = nums.slice(0,3).map((num, idx) => {
+    const pct = probs[idx] ?? Math.max(conf - idx * 9, 5);
+    return `<div class="top3-chip">
+      <span class="ball ball-sm ${ballClass(num)}">${num}</span>
+      <span class="text-xs">${SIZE_MAP[num]}</span>
+      <span class="text-xs text-dim">${pct}%</span>
+    </div>`;
+  }).join('');
+
+  // Sources
+  const sources = pred.sources || pred.models || ['local'];
+  document.getElementById('pred-sources').innerHTML = sources.map(s =>
+    `<span class="source-pill">${s}</span>`
+  ).join('');
+
+  // Update bet display now that activePred is populated
+  updateBet(col, sz);
+}
+
+/* ══════════════════════════════════════════════
+   PREDICTION EVALUATION
+══════════════════════════════════════════════ */
+function evaluatePrediction(actualNum) {
+  if (!activePred) return;
+  const predNums = activePred.numbers || [activePred.number];
+  const aSize    = SIZE_MAP[actualNum];
+  const aCol     = COLOR_MAP[actualNum];  // base color only
+  const predCol  = (activePred.color || '').toLowerCase();
+  const predSize = (activePred.size  || '').toLowerCase();
+
+  const ev = {
+    num:   predNums.includes(actualNum),
+    primaryNum: actualNum === activePred.number,
+    size:  predSize === aSize.toLowerCase(),
+    color: predCol.includes(aCol.toLowerCase())
+  };
+
+  // Push the whole evaluation object to front for Matrix display
+  rowResults.unshift(ev);
+  if (rowResults.length > 30) rowResults.pop();
+
+  settleBet(ev);
+}
+
+// Global Stats fetch
+async function fetchGlobalStats() {
+  try {
+    const res = await fetch(`${MODEL_API}/api/stats?game=${currentGame}&_t=${Date.now()}`);
+    if (res.ok) {
+      const json = await res.json();
+      if (json.status === 'success' && json.data) {
+        const d = json.data;
+        if (d.total_predictions > 0) {
+          stats.total = d.total_predictions;
+          stats.num.hit = d.number_hit || 0;
+          stats.num.miss = d.number_miss || 0;
+          stats.color.hit = d.color_hit || 0;
+          stats.color.miss = d.color_miss || 0;
+          stats.size.hit = d.size_hit || 0;
+          stats.size.miss = d.size_miss || 0;
+          renderStats();
+        }
+      }
+    }
+  } catch(e) {
+    console.error("fetchGlobalStats error", e);
+  }
+}
+
+/* ══════════════════════════════════════════════
+   STATS
+══════════════════════════════════════════════ */
+function renderStats() {
+  const pct = (h, m) => m + h === 0 ? '0%' : Math.round(h / (h + m) * 100) + '%';
+  document.getElementById('stat-total').textContent    = stats.total;
+  document.getElementById('stat-num-acc').textContent  = pct(stats.num.hit, stats.num.miss);
+  document.getElementById('stat-size-acc').textContent = pct(stats.size.hit, stats.size.miss);
+  document.getElementById('stat-color-acc').textContent= pct(stats.color.hit, stats.color.miss);
+  document.getElementById('stat-num-sub').textContent  = `${stats.num.hit} H / ${stats.num.miss} M`;
+  document.getElementById('stat-size-sub').textContent = `${stats.size.hit} H / ${stats.size.miss} M`;
+  document.getElementById('stat-color-sub').textContent = `${stats.color.hit} H / ${stats.color.miss} M`;
+
+  // Color acc
+  ['num','size','color'].forEach(k => {
+    const el = document.getElementById(`stat-${k}-acc`);
+    const v  = parseInt(el.textContent);
+    el.className = `stat-val ${v >= 60 ? 'val-green' : v >= 40 ? 'val-gold' : 'val-red'}`;
+  });
+}
+
+/* ══════════════════════════════════════════════
+   BET ASSISTANT
+══════════════════════════════════════════════ */
+function applyBetSettings() {
+  const newBal = parseInt(document.getElementById('bet-balance-input').value);
+  const newBase = parseInt(document.getElementById('bet-stake-input').value);
+  if (!isNaN(newBal) && newBal > 0) bet.balance = newBal;
+  if (!isNaN(newBase) && newBase > 0) { bet.baseStake = newBase; bet.stake = newBase; bet.step = 0; }
+  savePersisted();
+  updateBetDisplay();
+}
+
+/* Total money placed on the table this round */
+function getTotalOutlay() {
+  const type = document.getElementById('bet-type').value;
+  return type === 'number' ? bet.stake * 3 : bet.stake;
+}
+
+function updateBetDisplay() {
+  if (!activePred) return;
+  const type  = document.getElementById('bet-type').value;
+  const stake = bet.stake;
+  const nums  = (activePred.numbers || [activePred.number]).slice(0, 3);
+  const sz    = activePred.size  || '?';
+  const col   = activePred.color || '?';
+  const total = getTotalOutlay();
+
+  let planHTML = '';
+
+  if (type === 'number') {
+    // ── 3 simultaneous number bets ──────────────────────────────
+    const winReturn = stake * 9;        // one hits → get 9× that one stake back
+    const netProfit = winReturn - total; // 9s − 3s = 6s
+    planHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span class="text-xs text-dim" style="letter-spacing:2px">BET PLAN · 3 NUMBERS</span>
+        <span class="text-xs text-dim">×3 entries</span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px">
+        ${nums.map(n => `
+          <div style="display:flex;align-items:center;gap:5px;background:rgba(255,255,255,.04);border:1px solid var(--border2);border-radius:6px;padding:4px 8px">
+            <span class="ball ball-sm ${ballClass(n)}" style="width:20px;height:20px;line-height:20px;font-size:11px">${n}</span>
+            <span class="text-xs text-gold">Rs ${stake}</span>
+          </div>`).join('')}
+      </div>
+      <div style="border-top:1px solid var(--border2);padding-top:6px;display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;justify-content:space-between">
+          <span class="text-xs text-dim">TOTAL OUTLAY</span>
+          <span class="text-xs" style="color:var(--red)">−Rs ${total}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span class="text-xs text-dim">IF ANY HITS (9×)</span>
+          <span class="text-xs text-neon">+Rs ${netProfit} profit</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span class="text-xs text-dim">IF MISS → NEXT STAKE</span>
+          <span class="text-xs text-gold">Rs ${stake * 3} × 3 = Rs ${stake * 9} total</span>
+        </div>
+      </div>`;
+
+  } else {
+    // ── Single color/size bet ────────────────────────────────────
+    const label     = type === 'size' ? `Size: ${sz}` : `Color: ${col}`;
+    const winReturn = +(stake * 1.95).toFixed(2);
+    const netProfit = +(stake * 0.95).toFixed(2);
+    planHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span class="text-xs text-dim" style="letter-spacing:2px">BET PLAN · ${type.toUpperCase()}</span>
+        <span class="text-xs text-dim">×1 entry</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.04);border:1px solid var(--border2);border-radius:6px;padding:6px 10px;margin-bottom:8px">
+        <span class="text-xs" style="flex:1;font-weight:700">${label}</span>
+        <span class="text-xs text-gold">Rs ${stake}</span>
+        <span class="text-xs text-dim">→</span>
+        <span class="text-xs text-neon">Rs ${winReturn}</span>
+      </div>
+      <div style="border-top:1px solid var(--border2);padding-top:6px;display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;justify-content:space-between">
+          <span class="text-xs text-dim">NET PROFIT (win)</span>
+          <span class="text-xs text-neon">+Rs ${netProfit}</span>
+        </div>
+        <div style="display:flex;justify-content:space-between">
+          <span class="text-xs text-dim">IF MISS → NEXT STAKE</span>
+          <span class="text-xs text-gold">Rs ${stake * 3}</span>
+        </div>
+      </div>`;
+  }
+
+  document.getElementById('bet-plan-display').innerHTML = planHTML;
+  document.getElementById('bet-next-label').textContent =
+    `Outlay: Rs ${total}  ·  Balance: Rs ${bet.balance}`;
+}
+
+function updateBet(col, sz) {
+  document.getElementById('bet-balance-input').value = bet.balance;
+  document.getElementById('bet-stake-input').value   = bet.baseStake;
+  updateBetDisplay();
+}
+
+function settleBet(ev) {
+  const type  = document.getElementById('bet-type').value;
+  const stake = bet.stake;
+
+  let won, totalCost, netProfit, lostStr, wonStr;
+
+  if (type === 'number') {
+    // ── Number: bet stake on EACH of top-3 ──────────────────────
+    // Win = any of top-3 hits (ev.num). Return = 9×stake on winning ticket.
+    // Net profit = 9×stake − 3×stake = 6×stake
+    totalCost = stake * 3;
+    won       = ev.num;  // any of top-3 hit
+    netProfit = stake * 9 - totalCost;  // = 6×stake
+    wonStr    = `✔ WON +Rs ${netProfit}  (9×${stake} − 3×${stake})`;
+    lostStr   = `✘ LOST −Rs ${totalCost}  (3 bets × Rs ${stake})`;
+
+  } else {
+    // ── Color / Size: single bet at 1.95× ───────────────────────
+    totalCost = stake;
+    won       = type === 'size' ? ev.size : ev.color;
+    netProfit = +(stake * 0.95).toFixed(2);
+    wonStr    = `✔ WON +Rs ${netProfit}  (1.95×${stake})`;
+    lostStr   = `✘ LOST −Rs ${totalCost}`;
+  }
+
+  if (won) {
+    bet.balance = +(bet.balance + netProfit).toFixed(2);
+    bet.step    = 0;
+    bet.stake   = bet.baseStake;
+    document.getElementById('bet-last').innerHTML =
+      `<span class="text-neon" style="font-size:11px">${wonStr}</span>`;
+  } else {
+    bet.balance = +(bet.balance - totalCost).toFixed(2);
+    bet.step++;
+    // ── 3× Martingale ──────────────────────────────────────────
+    const nextStake  = stake * 3;
+    const nextOutlay = type === 'number' ? nextStake * 3 : nextStake;
+    // Safety cap: don't let outlay exceed 40% of remaining balance
+    const cap = Math.max(bet.baseStake, Math.floor(bet.balance * 0.4 / (type === 'number' ? 3 : 1)));
+    bet.stake = Math.min(nextStake, cap);
+    document.getElementById('bet-last').innerHTML =
+      `<span class="text-red" style="font-size:11px">${lostStr}</span>`;
+  }
+
+  bet.balance = Math.max(0, bet.balance);
+  savePersisted();
+  document.getElementById('bet-balance-input').value = bet.balance;
+  document.getElementById('bet-next-label').textContent =
+    `Outlay: Rs ${getTotalOutlay()}  ·  Balance: Rs ${bet.balance}`;
+}
+
+/* ══════════════════════════════════════════════
+   ANALYTICS
+══════════════════════════════════════════════ */
+function renderAnalytics() {
+  if (!gData.length) return;
+  renderHotCold();
+  renderColorBars();
+  renderSizeBars();
+  renderNumBars();
+  renderStreaks();
+  renderMLScore();
+}
+
+function countBy(key) {
+  const c = {};
+  gData.forEach(r => { if (r[key]) c[r[key]] = (c[r[key]] || 0) + 1; });
+  return c;
+}
+function countNums() {
+  const c = {};
+  for (let i = 0; i <= 9; i++) c[i] = 0;
+  gData.forEach(r => c[r.number]++);
+  return c;
+}
+
+function renderHotCold() {
+  const c  = countNums();  // always has all 0-9
+  const vals = Object.values(c);
+  const mx = Math.max(...vals, 1);
+  document.getElementById('hc-grid').innerHTML = Object.entries(c)
+    .sort((a,b) => b[1]-a[1])
+    .map(([n, v]) => {
+      const r   = v / mx;
+      const cls = r > 0.7 ? 'hot' : r > 0.4 ? 'warm' : r > 0.1 ? 'cold' : 'ice';
+      return `<div class="hc ${cls}">${n}<span>${v}×</span></div>`;
+    }).join('');
+}
+
+function renderBars(el, counts, colors) {
+  const tot = Object.values(counts).reduce((a,b)=>a+b, 0);
+  document.getElementById(el).innerHTML = Object.entries(counts).sort((a,b)=>b[1]-a[1]).map(([k,v]) => {
+    const p   = tot ? Math.round(v/tot*100) : 0;
+    const col = colors[k] || 'var(--dim)';
+    return `<div class="brow">
+      <span class="blbl">${k}</span>
+      <div class="btrk"><div class="bfil" style="width:${p}%;background:${col}">${v}</div></div>
+      <span class="bpct" style="color:${col}">${p}%</span>
+    </div>`;
+  }).join('');
+}
+
+function renderColorBars() {
+  renderBars('color-bars', countBy('color'), { Red:'var(--red)', Green:'var(--neon)', Violet:'var(--violet)' });
+}
+function renderSizeBars() {
+  renderBars('size-bars', countBy('size'), { Big:'var(--gold)', Small:'var(--cyan)' });
+}
+function renderNumBars() {
+  const cols = {0:'var(--violet)',1:'var(--neon)',2:'var(--red)',3:'var(--neon)',4:'var(--red)',5:'var(--violet)',6:'var(--red)',7:'var(--neon)',8:'var(--red)',9:'var(--neon)'};
+  renderBars('num-bars', countNums(), cols);
+}
+
+function renderStreaks() {
+  if (!gData.length) return;
+  const r20 = gData.slice(0, 20);
+  const cs  = (arr, k) => { const v = arr[0][k]; let n=1; for(let i=1;i<arr.length;i++){if(arr[i][k]===v)n++;else break;} return {v,n}; };
+  const cc = cs(r20,'color'), sc = cs(r20,'size');
+  const l10c = r20.slice(0,10).map(r=>r.color);
+  const l10s = r20.slice(0,10).map(r=>r.size);
+
+  const cStyle = c => c==='Red'?'background:rgba(255,51,51,.12);color:var(--red);border-color:rgba(255,51,51,.3)':c==='Green'?'background:rgba(0,255,65,.08);color:var(--neon);border-color:rgba(0,255,65,.3)':'background:rgba(184,0,230,.1);color:var(--violet);border-color:rgba(184,0,230,.3)';
+  const sStyle = s => s==='Big'?'background:rgba(255,215,0,.1);color:var(--gold);border-color:rgba(255,215,0,.3)':'background:rgba(0,229,255,.08);color:var(--cyan);border-color:rgba(0,229,255,.3)';
+  const ccol   = cc.v==='Red'?'var(--red)':cc.v==='Green'?'var(--neon)':'var(--violet)';
+  const scol   = sc.v==='Big'?'var(--gold)':'var(--cyan)';
+
+  document.getElementById('streaks-content').innerHTML = `
+    <div class="streaks-grid">
+      <div class="scard">
+        <div class="scard-title">🎨 COLOR STREAK</div>
+        <div class="font-orb" style="font-size:26px;color:${ccol};text-shadow:0 0 14px ${ccol}">${cc.v.toUpperCase()}</div>
+        <div class="text-xs text-dim2 mt-2">${cc.n}× consecutive</div>
+        <div class="mt-2">${l10c.map(c=>`<span class="schip" style="${cStyle(c)}">${c}</span>`).join(' ')}</div>
+      </div>
+      <div class="scard">
+        <div class="scard-title">📏 SIZE STREAK</div>
+        <div class="font-orb" style="font-size:26px;color:${scol};text-shadow:0 0 14px ${scol}">${sc.v.toUpperCase()}</div>
+        <div class="text-xs text-dim2 mt-2">${sc.n}× consecutive</div>
+        <div class="mt-2">${l10s.map(s=>`<span class="schip" style="${sStyle(s)}">${s}</span>`).join(' ')}</div>
+      </div>
+    </div>`;
+}
+
+function renderMLScore() {
+  if (!gData.length) return;
+  const last = gData[0];
+  const pw   = last.pattern === 'Repeat' ? 0.7 : 0.3;
+  const rt   = last.streak  > 2 ? 0.5 : 0.2;
+  const mp   = 0.25;
+  const score= (pw * 0.5) + (rt * 0.3) + (mp * 0.2);
+  const pct  = Math.round(score * 100);
+  document.getElementById('ml-score-content').innerHTML = `
+    <div class="flex gap-4">
+      <div style="flex:1">
+        <div class="text-xs text-dim" style="margin-bottom:6px;letter-spacing:2px">HYBRID SCORE</div>
+        <div class="font-orb" style="font-size:32px;color:var(--neon)">${score.toFixed(2)}</div>
+        <div class="conf-track mt-2"><div class="conf-fill" style="width:${pct}%;background:var(--neon)"></div></div>
+        <div class="text-xs text-dim mt-2">${pct}% confidence</div>
+      </div>
+      <div>
+        <div class="text-xs text-dim" style="margin-bottom:6px;letter-spacing:2px">INPUTS</div>
+        <div class="text-xs mt-2">Pattern weight: <span class="text-gold">${pw.toFixed(2)}</span></div>
+        <div class="text-xs mt-2">Trend weight:   <span class="text-cyan">${rt.toFixed(2)}</span></div>
+        <div class="text-xs mt-2">LSTM prob:      <span class="text-neon">${mp.toFixed(2)}</span></div>
+        <div class="text-xs text-dim mt-3">Based on ${gData.length} draws · ⚠ For analysis only</div>
+      </div>
+    </div>`;
+}
+
+/* ══════════════════════════════════════════════
+   HISTORY TABLE
+══════════════════════════════════════════════ */
+function renderHistoryTable() {
+  const tb = document.getElementById('hist-body');
+  document.getElementById('hist-count').textContent = `${gData.length} records`;
+  tb.innerHTML = gData.slice(0, 200).map((r, i) => {
+    const bc = r.color === 'Red' ? 'br' : r.color === 'Green' ? 'bg' : 'bv';
+    return `<tr>
+      <td class="text-dim2">${i + 1}</td>
+      <td class="text-dim2 text-xs">${String(r.issue).slice(-6)}</td>
+      <td><span class="ball ball-sm ${bc}">${r.number}</span></td>
+      <td><span class="bdg bdg-${r.color[0].toLowerCase()}">${r.color}</span></td>
+      <td><span class="bdg ${r.size==='Big'?'bdg-b':'bdg-s'}">${r.size}</span></td>
+      <td class="text-xs text-dim2">${r.streak}×</td>
+      <td class="text-xs text-dim2">${r.pattern}</td>
+      <td class="text-xs text-dim2">${r.time || '—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ══════════════════════════════════════════════
+   GAME SWITCHER
+══════════════════════════════════════════════ */
+function switchGame(game, btn) {
+  currentGame = game;
+  document.querySelectorAll('.game-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  lastIssue  = null;
+  hasBooted  = false;
+  gData      = [];
+  rawDraws   = [];
+  fetchData();
+}
+
+/* ══════════════════════════════════════════════
+   RENDER ALL
+══════════════════════════════════════════════ */
+function renderAll() {
+  if (!gData.length) return;
+  renderStream(rawDraws);
+  renderHomeChips(rawDraws);
+  renderAnalytics();
+  renderHistoryTable();
+  renderStats();
+}
+
+/* ══════════════════════════════════════════════
+   BOOT
+══════════════════════════════════════════════ */
+function initUI() {
+  // Restore bet inputs from persisted state
+  const bi = document.getElementById('bet-balance-input');
+  const si = document.getElementById('bet-stake-input');
+  if (bi) bi.value = bet.balance;
+  if (si) si.value = bet.baseStake;
+  document.getElementById('bet-next-label').textContent = `Next stake: Rs ${bet.stake}  ·  Balance: Rs ${bet.balance}`;
+  // Show persisted accuracy immediately
+  renderStats();
+}
+
+showView('home');
+initUI();
+fetchData();
+setInterval(fetchData, 3000);
+</script>
+
+</body>
+</html>

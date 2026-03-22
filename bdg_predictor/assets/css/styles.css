@@ -676,3 +676,18 @@ body::before {
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: var(--bg); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+.glass-panel {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px); /* Safari support */
+}
+
+.conn-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.center-text {
+  text-align: center;
+}

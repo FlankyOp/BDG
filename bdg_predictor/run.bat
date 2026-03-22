@@ -1,6 +1,5 @@
 @echo off
 REM BDG Prediction Engine - Startup Script for Windows
-REM This script sets up the environment and runs the prediction engine
 
 echo.
 echo ========================================
@@ -9,19 +8,17 @@ echo   Windows Startup Script
 echo ========================================
 echo.
 
-REM Check if Python is installed
 python --version >nul 2>&1
 if errorlevel 1 (
     echo ERROR: Python is not installed or not in PATH
-    echo Please install Python 3.7+ from https://www.python.org/
+    echo Please install Python 3.9+ from https://www.python.org/
     pause
     exit /b 1
 )
 
-echo ✓ Python found
+echo [OK] Python found
 echo.
 
-REM Check if dependencies are installed
 echo Checking dependencies...
 pip show requests >nul 2>&1
 if errorlevel 1 (
@@ -34,34 +31,38 @@ if errorlevel 1 (
     )
 )
 
-echo ✓ All dependencies installed
+echo [OK] All dependencies installed
 echo.
 
-REM Dashboard mode: launch model API and open HTML UI
+REM Dashboard mode: launch model API + frontend, open dashboard.html
 if "%~1"=="--dashboard" goto dashboard
 
-REM Run the main program
+REM Default: run the CLI prediction engine
 echo Starting BDG Prediction Engine...
 echo.
-
 python main.py %*
-
 pause
 exit /b 0
 
 :dashboard
 echo Starting BDG dashboard mode...
-echo Launching local model API on http://127.0.0.1:8787
-start "BDG Model API" cmd /c python model_api_server.py --host 127.0.0.1 --port 8787
+echo.
 
-REM Give server a moment to boot before opening UI
-timeout /t 2 >nul
+REM Bug-5 fix: run model_api_server from THIS directory (bdg_predictor\)
+echo Launching Model API on http://127.0.0.1:8787 ...
+start "BDG Model API  [port 8787]" cmd /k python model_api_server.py
 
-echo Opening dashboard in your default browser...
-start "" index.html
+echo Launching Frontend   on http://127.0.0.1:8000 ...
+start "BDG Frontend    [port 8000]" cmd /k python start_frontend.py
+
+timeout /t 3 >nul
+
+REM Bug-5 fix: open dashboard.html via the frontend server, not as a local file
+echo Opening dashboard in browser...
+start "" "http://127.0.0.1:8000/dashboard.html"
 
 echo.
 echo Dashboard started.
-echo - Keep the "BDG Model API" terminal running while using the dashboard.
-echo - Close that terminal window to stop model-backed predictions.
+echo - Keep both terminal windows open while using the dashboard.
+echo - Close them to stop the servers.
 pause

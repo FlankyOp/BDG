@@ -12,14 +12,15 @@ import shutil
 import glob
 from typing import Any, Dict, Optional, List, cast
 from datetime import datetime
-from data_fetcher import DataFetcher, create_sample_data
-from pattern_detector import ColorMapper, SizeMapper
-from predictor import Predictor
-from config import Config
-import firebase_client
-from telegram_sender import send_prediction # pyright: ignore[reportUnknownVariableType]
+from data_fetcher import DataFetcher, create_sample_data  # type: ignore
+from pattern_detector import ColorMapper, SizeMapper  # type: ignore
+from predictor import Predictor  # type: ignore
+from config import Config  # type: ignore
+import firebase_client  # type: ignore
+from telegram_sender import send_prediction  # type: ignore
+from bdg_types import PredictionDict  # type: ignore
 try:
-    from sequence_model import get_global_model
+    from sequence_model import get_global_model  # type: ignore
     lstm_import_ok = True
 except Exception:
     get_global_model = None  # type: ignore
@@ -98,7 +99,34 @@ class PredictionEngine:
         if not data:
             return []
 
-        return self.data_fetcher.extract_draws(data)
+        rows = self.data_fetcher.extract_draws(data)
+        for idx, row in enumerate(rows):
+            num = row.get("number")
+            row["size"] = self._number_to_size(num)
+            row["streak"] = self._calc_streak(num, [r["number"] for r in rows], idx)
+            row["pattern"] = self._calc_pattern(num, [r["number"] for r in rows], idx)
+        return rows
+
+    @staticmethod
+    def _calc_streak(num, arr, idx):
+        streak = 1
+        for i in range(idx + 1, len(arr)):
+            if arr[i] == num:
+                streak += 1
+            else:
+                break
+        return streak
+
+    @staticmethod
+    def _calc_pattern(num, arr, idx):
+        if idx == 0:
+            return "-"
+        last = arr[idx - 1]
+        if num == last:
+            return "Repeat"
+        if (num % 2) == (last % 2):
+            return "Even/Odd"
+        return "Switch"
 
     @staticmethod
     def _select_period_rows(rows: List[Dict[str, Any]], period: Optional[str]) -> List[Dict[str, Any]]:
@@ -107,7 +135,7 @@ class PredictionEngine:
 
         for index, row in enumerate(rows):
             if str(row.get("period")) == str(period):
-                return rows[index:]
+                return rows[index:]  # type: ignore
 
         return rows
 
@@ -192,7 +220,7 @@ class PredictionEngine:
 
         # Return newest-first to match the rest of the pipeline.
         newest_first = list(reversed(chronological_numbers))
-        return newest_first[:max_entries]
+        return newest_first[:max_entries]  # type: ignore
 
     def _evaluate_pending_status(
         self,
@@ -205,6 +233,7 @@ class PredictionEngine:
             return None
 
         payload = self.pending_status_eval
+        assert payload is not None
         predicted_raw = payload.get("predicted", {})
         if not predicted_raw:
             self.pending_status_eval = None
@@ -276,7 +305,7 @@ class PredictionEngine:
             if period and selected_rows is draws:
                 logger.warning("Requested period %s not present in latest history window; using newest data", period)
 
-            numbers = [int(d["number"]) for d in selected_rows[:Config.HISTORY_DRAWS_LIMIT]]
+            numbers = [int(d["number"]) for d in selected_rows[:Config.HISTORY_DRAWS_LIMIT]]  # type: ignore
             return numbers if numbers else create_sample_data()
 
         except Exception as e:
@@ -334,7 +363,7 @@ class PredictionEngine:
 
         # Incremental LSTM training on the latest draw window.
         if lstm_import_ok and Config.LSTM_ENABLED:
-            lstm = get_global_model() # pyright: ignore[reportOptionalCall]
+            lstm = get_global_model()  # type: ignore
             if lstm:
                 try:
                     if not lstm.model_available:
@@ -349,17 +378,20 @@ class PredictionEngine:
 
                         combined_train_draws: List[int] = []
                         combined_train_draws.extend(draws)
-                        if fs_draws:
-                            combined_train_draws.extend(fs_draws)
-                        if log_draws:
-                            combined_train_draws.extend(log_draws)
+                        # Use local lists to pacify strict static analysis
+                        _fs: List[int] = fs_draws if isinstance(fs_draws, list) else []
+                        _logs: List[int] = log_draws if isinstance(log_draws, list) else []
+                        if _fs:
+                            combined_train_draws.extend(_fs)
+                        if _logs:
+                            combined_train_draws.extend(_logs)
 
                         # Keep a bounded memory window for stable CPU training time.
-                        combined_train_draws = combined_train_draws[:8000]
+                        combined_train_draws = combined_train_draws[:8000]  # type: ignore
 
                         logger.info(
                             "[LSTM] Cold-start memory: API=%d + Firestore=%d + Logs=%d => train=%d",
-                            len(draws), len(fs_draws), len(log_draws), len(combined_train_draws),
+                            len(draws), len(_fs), len(_logs), len(combined_train_draws),
                         )
                         lstm.train_full(combined_train_draws if combined_train_draws else draws)
                         self._firestore_lstm_bootstrapped = True
@@ -391,7 +423,7 @@ class PredictionEngine:
         prediction = predictor.generate_prediction()
         print(predictor.format_output(prediction))
 
-        send_prediction(prediction)
+        send_prediction(cast(PredictionDict, prediction))
 
         self._capture_pending_feedback(predictor, prediction)
         alternative = prediction.get("alternative_prediction") or prediction["primary_prediction"]
@@ -504,6 +536,7 @@ class PredictionEngine:
 
         learning_rate = Config.LEARNING_RATE
         payload = self.pending_feedback
+        assert payload is not None
         primary = payload["primary"]
         alternative = payload["alternative"]
         backup = payload["backup"]
@@ -521,12 +554,12 @@ class PredictionEngine:
         elif actual_number == backup:
             signals[backup] = 0.25
 
-        updated = dict(self.learning_profile)
+        updated = self.learning_profile.copy()
         for number, signal in signals.items():
-            comp = components.get(number, {})
-            for factor, value in comp.items():
+            comp = components.get(number, {})  # type: ignore
+            for factor, value in comp.items():  # type: ignore
                 if factor in updated:
-                    updated[factor] = updated[factor] + learning_rate * signal * value
+                    updated[factor] = updated[factor] + learning_rate * signal * value  # type: ignore
 
         self.learning_profile = self._normalize_weights(updated)
         self._save_learning_profile()
@@ -546,11 +579,11 @@ class PredictionEngine:
         
         try:
             while True:
-                if max_runs and run_count >= max_runs:
+                if max_runs is not None and run_count >= int(max_runs):  # type: ignore
                     logger.info(f"Reached max runs ({max_runs})")
                     break
                 
-                run_count += 1
+                run_count += 1  # type: ignore
                 logger.info(f"Poll #{run_count} - {datetime.now()}")
                 
                 # Run prediction against the latest available period.
@@ -631,7 +664,7 @@ class PredictionEngine:
             logger.warning("No prediction history available")
             return
         
-        recent = history[-num_predictions:]
+        recent = history[-num_predictions:]  # type: ignore
         
         print("\n" + "="*60)
         print("         RECENT PREDICTIONS ANALYSIS")
@@ -692,6 +725,7 @@ def prompt_polling_interval() -> int:
             pass
 
         print("Invalid interval. Please enter a positive whole number.")
+    return 30
 
 
 def main():

@@ -23,6 +23,7 @@ If PyTorch is not installed the module silently disables itself.
 Install once with:  pip install torch  (~2 GB on Windows)
 """
 
+# pyright: reportPossiblyUnboundVariable=false, reportOptionalCall=false
 import os
 import logging
 import random

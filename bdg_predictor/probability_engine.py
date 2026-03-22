@@ -39,6 +39,9 @@ class ProbabilityEngine:
     def _sequence_patterns(self) -> Dict[str, Any]:
         return cast(Dict[str, Any], self.patterns.get("sequence_patterns", {})) if isinstance(self.patterns.get("sequence_patterns", {}), dict) else {}
 
+    def _seasonality(self) -> Dict[str, Any]:
+        return self.patterns.get("seasonality", {"detected": False})
+
     def _sequence_scores(self) -> Dict[int, float]:
         raw_scores = self._sequence_patterns().get("scores", {})
         if not isinstance(raw_scores, dict):
@@ -239,6 +242,20 @@ class ProbabilityEngine:
             # ✓ Increased boost for cycle participation: 0.6 → 0.75
             return strength * 0.75
         
+        # ✓ NEW: Seasonal Fourier Peak Alignment
+        # If FFT detected a heartbeat, boost numbers that align with the next period peak
+        fft = self._seasonality()
+        if fft.get("detected") and fft.get("strength", 0) > 0.4:
+            period = fft.get("period", 1)
+            offset = fft.get("next_peak_offset", 0)
+            # Find which historical draws are at this cycle index
+            peak_indices = [i for i in range(len(self.draws)) if (i % int(period)) == offset]
+            peak_numbers = [self.draws[i] for i in peak_indices if i < len(self.draws)]
+            if peak_numbers:
+                peak_freq = Counter(peak_numbers)
+                if peak_freq.get(number, 0) > 0:
+                    return min(1.0, strength * 1.0 + 0.25)
+
         return 0.0
 
     def calculate_streak_weight(self, number: int) -> float:
@@ -293,83 +310,68 @@ class ProbabilityEngine:
         # ✓ FIXED: Was broken - probability * 3.0 + relative could exceed 1.0
         # Now uses relative strength only, normalized properly
         relative_strength = probability / top_probability
-        
-        # Returns normalized 0-1 score based on relative ranking
-        # If number is top prediction: 0.95-1.0
-        # If number is middle: 0.5-0.7
-        # If number is bottom: 0.0-0.2
         return min(1.0, relative_strength)
 
     def calculate_color_weight(self, number: int) -> float:
-        """Calculate color-based weight - ENHANCED."""
-        color = ColorMapper.get_color(number)
-        color_patterns = self._color_patterns()
-        dominant = color_patterns.get("dominant_color", {})
-        nAnB = color_patterns.get("nAnB_pattern", {})
-        
-        weight = 0.0
-        
-        # ✓ STRONGER nAnB pattern boost
-        color_pattern = str(color_patterns.get("pattern_type", ""))
-        if color_pattern and "A" in color_pattern:
-            if color == str(nAnB.get("next_color", "")):
-                weight += Config.COLOR_BOOST * 1.5  # Increased: 0.18 → 0.27
-        
-        # ✓ ENHANCED dominant color detection
-        if dominant.get("color"):
-            dom_color = str(dominant["color"])
-            percentage = float(dominant.get("percentage", 0.0))
+        """Calculate weight based on color patterns."""
+        pref_color, color_conf = self._extract_preferred_color()
+        if not pref_color or color_conf < 0.60:
+            return 0.0
             
-            if color == dom_color and percentage >= 50:
-                # BOOST for dominant colors
-                weight += 0.25 * (percentage / 100)  # NEW: Boost dominant
-            elif color != dom_color:
-                # Small penalty for non-dominant
-                weight -= 0.10
-        
-        # ✓ NEW: Color cycling pattern bonus
-        if color_patterns.get("color_cycle", {}).get("detected"):
-            cycle = color_patterns["color_cycle"].get("cycle", [])
-            if cycle and color in cycle:
-                weight += 0.15
-        
-        return max(0.0, min(weight, 1.0))
+        color = ColorMapper.get_color(number)
+        if self._matches_preferred_color(color, pref_color):
+            return max(0.0, color_conf * 0.8)
+        return 0.0
 
     def calculate_confidence_score(self, number: int) -> float:
-        """Calculate overall confidence score - ENHANCED with better balancing."""
+        """Calculate overall confidence score with recalibrated ensemble weights."""
         comps = self.get_weight_components(number)
-        trend = comps["trend"]
-        frequency = comps["frequency"]
-        cycle = comps["cycle"]
-        streak = comps["streak"]
-        noise = comps["noise"]
-        sequence = comps["sequence"]
         color = self.calculate_color_weight(number)
         
-        # ✓ IMPROVED: Better weight distribution
+        # ✓ RECALIBRATED: Prioritize sequence and pattern over raw color/frequency
         score = (
-            trend * self.weights["trend"] +
-            frequency * self.weights["frequency"] +
-            cycle * self.weights["cycle"] +
-            streak * self.weights["streak"] +
-            noise * self.weights["noise"] +
-            sequence * self.weights["sequence"]
+            comps["trend"] * self.weights.get("trend", 0.25) +
+            comps["frequency"] * self.weights.get("frequency", 0.10) +
+            comps["cycle"] * self.weights.get("cycle", 0.15) +
+            comps["streak"] * self.weights.get("streak", 0.10) +
+            comps["sequence"] * self.weights.get("sequence", 0.40) # Increased sequence weight
         )
         
-        # ✓ ENHANCED: Color has stronger impact
-        if color > 0.05:  # Changed from 0.1 to 0.05
-            # More aggressive color blending: 5% → 15%
-            color_blend = Config.COLOR_BLEND_WEIGHT * 3.0  # Increased impact
-            score = score * (1.0 - color_blend) + color * color_blend
+        # ✓ STABILIZED: Color blending is helpful but shouldn't drown numbers
+        if color > 0.1:
+            color_blend = 0.25 # 25% impact max
+            score = (score * (1.0 - color_blend)) + (color * color_blend)
 
-        # ✓ IMPROVED: Apply trend boost multiplier
-        size_patterns = self._size_patterns()
-        if size_patterns.get("pattern_type") in ["Alternating", "Streak", "Repeating"]:
-            if score > 0.1:  # Only boost if already has some signal
-                score *= 1.15  # 15% boost for detected trends
+        # ✓ SMART SPECTRAL: Fix FFT number mapping
+        fft = self._seasonality()
+        if fft.get("detected"):
+            period = fft.get("period", 1)
+            offset = fft.get("next_peak_offset", 0)
+            
+            # Predict number based on phase of the heartbeat
+            # We look at which number usually appears at this offset in the history
+            window = int(period * 4)
+            recent_at_offset = []
+            for i in range(offset, min(len(self.draws), window), int(period) or 1):
+                recent_at_offset.append(self.draws[i])
+            
+            if recent_at_offset:
+                from collections import Counter
+                most_common_at_peak = Counter(recent_at_offset).most_common(1)[0][0]
+                if number == most_common_at_peak:
+                    score *= 1.20 # 20% spectral alignment boost
+        
+        # ✓ HIGH CONSENSUS: Hard consensus check (Markov/LSTM vs Pattern)
+        seq_top = self._sequence_patterns().get("top_prediction")
+        if seq_top == number:
+            # If sequence and trend both like it
+            if comps["trend"] > 0.6:
+                score *= 1.15
+            # If sequence and FFT peak both like it
+            if fft.get("detected") and score > 0.5:
+                score *= 1.10
 
         score *= self._repeat_penalty_multiplier(number)
-        
         return min(score, 1.0)
     
     def rank_all_numbers(self) -> List[Tuple[int, float, str, str]]:
@@ -388,19 +390,17 @@ class ProbabilityEngine:
             score = self.calculate_confidence_score(num)
             size = SizeMapper.get_size(num)
             color = ColorMapper.get_color(num)
-            tier = 3
-            # Tier 1: Color match (high confidence)
-            if pref_color and color_conf >= 0.60 and self._matches_preferred_color(color, pref_color):
+            # TIERED CLASSIFICATION (Secondary Metadata)
+            # Tier 1: Strong Number Signal (>70%)
+            if score >= 0.70:
                 tier = 1
-            # Tier 1: Size match (high confidence, color signal weak)
-            elif pref_size and size_conf >= 0.60 and (not pref_color or color_conf < 0.60) and size == pref_size:
-                tier = 1
-            # Tier 2: Size match (color signal strong, but not matched)
-            elif pref_color and color_conf >= 0.60 and pref_size and size_conf >= 0.60 and size == pref_size:
+            # Tier 2: Medium Signal (>50%) or Single strong Pattern (Color/Size)
+            elif score >= 0.50 or (pref_color and color_conf >= 0.70 and self._matches_preferred_color(color, pref_color)):
                 tier = 2
-            # Tier 2: Size match (color signal weak)
-            elif pref_size and size_conf >= 0.60 and size == pref_size:
-                tier = 2
+            # Tier 3: Low Signal
+            else:
+                tier = 3
+
             rankings.append({
                 "number": num,
                 "score": score,
@@ -408,7 +408,9 @@ class ProbabilityEngine:
                 "color": color,
                 "tier": tier
             })
-        rankings.sort(key=lambda x: (x["tier"], -x["score"]))
+            
+        # ✓ INVERTED: Sort by Score (Primary) then Tier (Secondary)
+        rankings.sort(key=lambda x: (-x["score"], x["tier"]))
         logger.info(f"Hierarchical rankings (color_signal={color_conf:.2f}, size_signal={size_conf:.2f}):")
         for i, r in enumerate(rankings[:5]):
             logger.info(f"  {i+1}. {r['number']}: {r['score']:.2%} ({r['size']}, {r['color']}) [tier={r['tier']}]")

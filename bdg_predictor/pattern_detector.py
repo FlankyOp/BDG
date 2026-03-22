@@ -38,10 +38,16 @@ class ColorMapper:
         3: "Green",    # 3: Green
         4: "Red",      # 4: Red
         5: "Violet",   # 5: Green/Violet (use Violet)
-        6: "Red",      # 6: Red
-        7: "Green",    # 7: Green
-        8: "Red",      # 8: Red
-        9: "Green"     # 9: Green
+            0: "Violet",   # 0: Violet
+            1: "Red",      # 1: Red
+            2: "Green",    # 2: Green
+            3: "Red",      # 3: Red
+            4: "Green",    # 4: Green
+            5: "Violet",   # 5: Violet
+            6: "Red",      # 6: Red
+            7: "Green",    # 7: Green
+            8: "Red",      # 8: Red
+            9: "Green"     # 9: Green
     }
     
     @staticmethod
@@ -236,49 +242,34 @@ class PatternDetector:
     
     def _detect_repeating_pattern(self) -> Dict[str, Any]:
         """
-        Detect repeating pattern like BB SS or SS BB - ENHANCED.
-        More flexible: doesn't require ALL pairs to match.
+        Detect repeating pair patterns like (Small, Small), (Big, Big), (Small, Small)...
+        This looks for a pattern that repeats every 2 pairs.
         """
-        if len(self.sizes) < 4:
+        if len(self.sizes) < 8:
             return {"found": False, "strength": 0.0}
         
-        recent = list(reversed(self.sizes[:12]))  # Extended to 12
-        pairs = [recent[i:i+2] for i in range(0, len(recent) - 1, 2)]
+        recent = list(reversed(self.sizes[:16]))
+        pairs = [tuple(recent[i:i+2]) for i in range(0, len(recent) - 1, 2)]
         
-        if len(pairs) >= 2:
-            # ✓ IMPROVED: Instead of requiring ALL pairs to match,
-            # count matching consecutive pairs
-            matching_pairs = 0
-            for i in range(len(pairs) - 1):
-                if pairs[i] == pairs[i+1]:
-                    matching_pairs += 1
+        if len(pairs) >= 4:
+            # Check for 2-pair cycle: pairs[0]==pairs[2], pairs[1]==pairs[3], etc.
+            matches = 0
+            total_checks = 0
+            for i in range(len(pairs) - 2):
+                total_checks += 1
+                if pairs[i] == pairs[i+2]:
+                    matches += 1
             
-            match_ratio = matching_pairs / max(len(pairs) - 1, 1)
+            match_ratio = matches / max(total_checks, 1)
             
-            # ✓ Require 60%+ matching pairs instead of 100%
-            if match_ratio >= 0.60 and matching_pairs >= 2:
-                pattern = pairs[0]  # Most common pair
-                
-                # Strength based on match ratio
-                if match_ratio >= 0.80:
-                    calibrated_strength = 0.80
-                    confidence = "high"
-                elif match_ratio >= 0.70:
-                    calibrated_strength = 0.70
-                    confidence = "medium-high"
-                else:
-                    calibrated_strength = 0.60
-                    confidence = "medium"
-                
-                logger.info(f"Repeating pattern detected: {pattern} ({match_ratio:.0%}, strength={calibrated_strength:.2f})")
+            if match_ratio >= 0.75 and matches >= 2:
+                calibrated_strength = 0.60 + (match_ratio * 0.25)
+                logger.info(f"Repeating pair pattern detected (ratio={match_ratio:.2f})")
                 return {
                     "found": True,
-                    "strength": min(0.85, calibrated_strength),
-                    "confidence": confidence,
-                    "pattern": pattern,
-                    "pair_count": len(pairs),
-                    "match_ratio": match_ratio,
-                    "next_expected": pattern
+                    "strength": min(0.88, calibrated_strength),
+                    "pattern": pairs[0],
+                    "next_expected": pairs[len(pairs) % 2]
                 }
         
         return {"found": False, "strength": 0.0}
@@ -506,6 +497,40 @@ class PatternDetector:
         for i in range(cycle_length, len(recent)):
             if recent[i] == pattern[i % cycle_length]:
                 matches += 1
+    
+    # ==================== CYCLE DETECTION ====================
+    
+    def detect_cycles(self) -> List[Dict[str, Any]]:
+        """
+        Detect repeating cycles (2-round, 3-round, 4-round, 6-round).
+        
+        Returns:
+            List of detected cycles with strength
+        """
+        cycles: List[Dict[str, Any]] = []
+        
+        for cycle_length in [2, 3, 4, 6]:
+            cycle_data = self._check_cycle(cycle_length)
+            if cycle_data["strength"] > 0:
+                cycles.append(cycle_data)
+        
+        return sorted(cycles, key=lambda x: x["strength"], reverse=True)
+    
+    def _check_cycle(self, cycle_length: int) -> Dict[str, Any]:
+        """Check if pattern repeats in given cycle length."""
+        if len(self.draws) < cycle_length * 2:
+            return {"cycle_length": cycle_length, "strength": 0.0, "pattern": None}
+
+        # Use 4x window for better cycle confirmation on long histories.
+        recent = list(reversed(self.draws[:cycle_length * 4]))
+        
+        # Check if pattern repeats
+        pattern = recent[:cycle_length]
+        matches = 0
+        
+        for i in range(cycle_length, len(recent)):
+            if recent[i] == pattern[i % cycle_length]:
+                matches += 1
         
         strength = matches / (len(recent) - cycle_length)
         
@@ -519,7 +544,50 @@ class PatternDetector:
             }
         
         return {"cycle_length": cycle_length, "strength": 0.0, "pattern": None}
-    
+
+    # ==================== SPECTRAL ANALYSIS (FFT) ====================
+
+    def detect_seasonality(self) -> Dict[str, Any]:
+        """
+        Perform Fast Fourier Transform (FFT) to find hidden periodic 'heartbeats'.
+        Detects if numbers repeat with a set frequency (e.g. every 7 rounds).
+        """
+        if len(self.draws) < 64:
+            return {"detected": False, "period": 0, "strength": 0.0}
+
+        try:
+            import numpy as np
+            # Treat draws as a discrete signal
+            signal = np.array(list(reversed(self.draws)))
+            signal = signal - np.mean(signal) # Remove DC offset
+            
+            n = len(signal)
+            fhat = np.fft.fft(signal, n)
+            psd = fhat * np.conj(fhat) / n
+            freq = (1/(1*n)) * np.arange(n)
+            L = np.arange(1, np.floor(n/2), dtype='int')
+            
+            # Find dominant frequency (excluding noise and near-zero)
+            max_idx = L[np.argmax(psd[L])]
+            dom_freq = freq[max_idx]
+            period = 1 / dom_freq if dom_freq > 0 else 0
+            strength = float(np.abs(psd[max_idx]) / np.sum(np.abs(psd[L])))
+
+            if strength >= Config.FFT_MIN_STRENGTH and 2 < period < 20:
+                logger.info(f"[FFT] Detected seasonality heartbeat: every {period:.1f} rounds (strength={strength:.2f})")
+                return {
+                    "detected": True,
+                    "period": float(period),
+                    "strength": strength,
+                    "next_peak_offset": int((n % period))
+                }
+        except ImportError:
+            logger.warning("[FFT] numpy not installed, spectral analysis disabled.")
+        except Exception as e:
+            logger.error(f"[FFT] Error in spectral analysis: {e}")
+
+        return {"detected": False, "period": 0, "strength": 0.0}
+
     # ==================== UTILITY METHODS ====================
     
     def get_size_distribution(self) -> Dict[str, int]:
@@ -552,6 +620,7 @@ class PatternDetector:
             "size_patterns": self.detect_size_pattern(),
             "color_patterns": self.detect_color_pattern(),
             "cycles": self.detect_cycles(),
+            "seasonality": self.detect_seasonality(),
             "sequence_patterns": seq_summary,
             "number_frequency": self.get_number_frequency(),
             "size_distribution": self.get_size_distribution(),
