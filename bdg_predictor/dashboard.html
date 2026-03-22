@@ -211,7 +211,25 @@
               onchange="applyBetSettings()">
           </div>
         </div>
-        <div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center;">
+        
+        <!-- Sure Shot Filter -->
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border2);display:flex;align-items:center;gap:10px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="bet-sureshot-toggle" onchange="updateBetDisplay()">
+            <span class="text-xs text-neon" style="font-weight:700">Sure Shot Only</span>
+          </label>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+            <span class="text-xs text-dim">Min Conf:</span>
+            <input id="bet-sureshot-min" type="number" min="50" max="100" value="85"
+              style="background:var(--panel2);border:1px solid var(--border2);color:var(--text);
+                     border-radius:4px;padding:2px 6px;width:40px;font-family:inherit;font-size:11px;
+                     text-align:center;outline:none;"
+              onchange="updateBetDisplay()">
+            <span class="text-xs text-dim">%</span>
+          </div>
+        </div>
+
+        <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:center;">
           <span class="text-xs text-dim2" id="bet-next-label">Total outlay: Rs 30</span>
           <button onclick="applyBetSettings()" class="btn btn-green" style="padding:3px 10px;font-size:9px">✓ APPLY</button>
         </div>
@@ -219,6 +237,15 @@
         <!-- Live bet plan -->
         <div id="bet-plan-display" style="margin-top:10px;padding:10px;background:var(--panel2);border-radius:8px;border:1px solid var(--border2);min-height:54px">
           <span class="text-xs text-dim">Waiting for prediction...</span>
+        </div>
+
+        <!-- Master Autobot Control -->
+        <div style="margin-top:12px;padding:10px;background:rgba(0,0,0,0.3);border-radius:8px;border:1px solid var(--border2);display:flex;align-items:center;justify-content:space-between">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="bet-autobot-toggle" style="transform:scale(1.2)">
+            <span class="text-xs text-green" style="font-weight:700;letter-spacing:1px">MASTER AUTO-BOT</span>
+          </label>
+          <span id="autobot-status" class="text-xs text-dim">Idle</span>
         </div>
 
         <div class="mt-2 text-xs" id="bet-last" style="margin-top:8px">No bet settled yet.</div>
@@ -654,11 +681,13 @@ async function fetchAndRenderPrediction(draws, targetIssue) {
     };
     activePred = normalized;
     renderPrediction(normalized, targetIssue, draws);
+    dispatchBotCommand(targetIssue);
   } catch(e) {
     // Fallback: local hybrid
     const pred = localHybridPredict(draws);
     activePred = pred;
     renderPrediction(pred, targetIssue, draws);
+    dispatchBotCommand(targetIssue);
   }
 }
 
@@ -854,8 +883,26 @@ function updateBetDisplay() {
   const nums  = (activePred.numbers || [activePred.number]).slice(0, 3);
   const sz    = activePred.size  || '?';
   const col   = activePred.color || '?';
+  const conf  = activePred.confidence || 0;
   const total = getTotalOutlay();
 
+  const sureShotOn = document.getElementById('bet-sureshot-toggle').checked;
+  const sureShotMin = parseInt(document.getElementById('bet-sureshot-min').value);
+
+  // ── Sure Shot Filter Logic ────────────────────────────────────
+  if (sureShotOn && conf < sureShotMin) {
+    bet.isSkipped = true;
+    document.getElementById('bet-plan-display').innerHTML = `
+      <div style="text-align:center;padding:12px 0;display:flex;flex-direction:column;gap:4px">
+        <span class="text-xs text-dim" style="letter-spacing:2px">SURE SHOT FILTER</span>
+        <span class="text-xs" style="color:var(--gold)">Confidence ${conf}% is below ${sureShotMin}% threshold</span>
+        <span class="text-xs" style="color:var(--red);font-weight:700">BET SKIPPED</span>
+      </div>`;
+    document.getElementById('bet-next-label').textContent = `Outlay: Rs 0  ·  Balance: Rs ${bet.balance}`;
+    return;
+  }
+  
+  bet.isSkipped = false;
   let planHTML = '';
 
   if (type === 'number') {
@@ -929,6 +976,12 @@ function updateBet(col, sz) {
 }
 
 function settleBet(ev) {
+  if (bet.isSkipped) {
+    document.getElementById('bet-last').innerHTML =
+      `<span class="text-dim" style="font-size:11px">⚖ Bet skipped (Sure Shot Filter)</span>`;
+    return;
+  }
+
   const type  = document.getElementById('bet-type').value;
   const stake = bet.stake;
 
@@ -1116,6 +1169,41 @@ function renderHistoryTable() {
       <td class="text-xs text-dim2">${r.time || '—'}</td>
     </tr>`;
   }).join('');
+}
+
+/* ══════════════════════════════════════════════
+   DISCORD WEBHOOK INTEGRATION
+══════════════════════════════════════════════ */
+async function dispatchDiscordWebhook(period) {
+  const sureShotOn = document.getElementById('bet-sureshot-toggle')?.checked;
+  const sureShotMin = parseInt(document.getElementById('bet-sureshot-min')?.value || 85);
+  const conf = activePred.confidence || 0;
+
+  // Only trigger if it's considered a Sure Shot
+  if (sureShotOn && conf >= sureShotMin) {
+    const type = document.getElementById('bet-type').value;
+    const outlayStr = document.getElementById('bet-next-label').textContent;
+    let outlay = 0;
+    const m = outlayStr.match(/Rs (\d+)/);
+    if (m) { outlay = parseInt(m[1]); }
+    
+    const payload = {
+        period: String(period),
+        pred_data: activePred,
+        bet_plan: { type: type, outlay: outlay }
+    };
+
+    try {
+        await fetch(`${MODEL_API}/api/notify/discord`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+        console.log("Discord Webhook sent for Sure Shot:", period);
+    } catch (e) {
+        console.error("Discord Webhook Error", e);
+    }
+  }
 }
 
 /* ══════════════════════════════════════════════

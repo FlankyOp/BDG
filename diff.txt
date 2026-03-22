@@ -1,0 +1,61 @@
+diff --git a/bdg_predictor/firebase_client.py b/bdg_predictor/firebase_client.py
+index 6d7b60a..38610cb 100644
+--- a/bdg_predictor/firebase_client.py
++++ b/bdg_predictor/firebase_client.py
+@@ -228,6 +228,22 @@ def push_hit_miss_status(game_code: str, status_data: Dict[str, Any]) -> None:
+         logger.error(f"Error pushing hit/miss status to Firebase: {e}")
+ 
+ 
++def get_hit_miss_summary(game_code: str) -> Dict[str, Any]:
++    """Fetch the latest global hit/miss summary from `/hit_miss/{game_code}/summary`."""
++    if not _is_valid_game_code(game_code):
++        return {}
++    if not init_firebase():
++        return {}
++    
++    try:
++        ref = db.reference(_firebase_path(HIT_MISS_PATH + "/summary", game_code))  # type: ignore[attr-defined]
++        payload = ref.get()  # type: ignore[attr-defined]
++        return cast(Dict[str, Any], payload if isinstance(payload, dict) else {})
++    except Exception as exc:
++        logger.error("Error reading hit/miss summary from Firebase: %s", exc)
++        return {}
++
++
+ # ============================================================
+ # Cloud Firestore — bdg_history collection
+ # ============================================================
+diff --git a/model_api_server.py b/model_api_server.py
+index ed005d0..16bdbfd 100644
+--- a/model_api_server.py
++++ b/model_api_server.py
+@@ -11,8 +11,9 @@ sys.path.append(project_dir)
+ from data_fetcher import DataFetcher
+ from pattern_detector import PatternDetector
+ from probability_engine import ProbabilityEngine
++from probability_engine import ProbabilityEngine
+ from config import Config
+-from firebase_client import fetch_firestore_history
++from firebase_client import fetch_firestore_history, get_hit_miss_summary
+ 
+ # Setup logging
+ logging.basicConfig(level=logging.INFO)
+@@ -54,6 +55,18 @@ def get_draw_history_alias():
+     # Alias for AR Predictor compatibility
+     return get_history()
+ 
++@app.route('/api/stats', methods=['GET'])
++def get_stats():
++    """Returns the globally aggregated hit/miss summary from Firebase."""
++    try:
++        game = request.args.get('game', Config.GAME_CODE)
++        logger.info(f"Fetching global stats for {game}...")
++        summary = get_hit_miss_summary(game)
++        return jsonify({"status": "success", "data": summary})
++    except Exception as e:
++        logger.error(f"Error fetching stats: {e}")
++        return jsonify({"status": "error", "message": str(e)}), 500
++
+ @app.route('/api/advanced/predict', methods=['GET'])
+ def predict():
+     try:

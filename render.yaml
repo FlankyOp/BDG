@@ -1,0 +1,16 @@
+# BDG AI Bot - Zero Configuration Blueprint
+# Deploy to Render.com with 1-click
+
+services:
+  - type: web
+    name: bdg-ai-predictor
+    runtime: docker
+    plan: free
+    region: singapore # Closest to BDG servers for low latency
+    envVars:
+      - key: DISCORD_WEBHOOK_URL
+        value: "https://discord.com/api/webhooks/1485272931205648606/joQ2aK6ADchkwALHDIRzBn5BOvJ8VKeb25BSZ3LqLY3pIYW68I3SyKibZ0P4R1T8lgXq"
+    # Port 8787 for the predicting API + BOT
+    # Note: Render Free tier handles the heavy lifting, 
+    # but the background monitoring (Discord) requires the 'Background Worker' plan 
+    # if you want it 24/7 without a dashboard tab open.

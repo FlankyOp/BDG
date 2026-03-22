@@ -22,12 +22,19 @@ from data_fetcher import DataFetcher  # type: ignore
 from predictor import Predictor  # type: ignore
 from pattern_detector import PatternDetector  # type: ignore
 from config import Config  # type: ignore
+from core.discord_notifier import send_sure_shot_alert
 
 PORT = 8787
 HOST = "127.0.0.1"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)s  %(message)s")
 logger = logging.getLogger(__name__)
+
+# --- Global Bot State ---
+BOT_STATE = {
+    "command": None,
+    "status": None
+}
 
 
 def _remap_draws(draws: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -103,12 +110,51 @@ class BDGHandler(http.server.BaseHTTPRequestHandler):
         elif parsed.path == "/health":
             self.send_json({"status": "healthy", "server": "BDG Model API", "port": PORT})
 
+        elif parsed.path == "/api/bot/command":
+            self.send_json({"status": "success", "data": BOT_STATE["command"]})
+
+        elif parsed.path == "/api/bot/status":
+            self.send_json({"status": "success", "data": BOT_STATE["status"]})
+
         else:
             self.send_error(HTTPStatus.NOT_FOUND, "Not Found")
 
-    # keep POST for backward compat (does nothing new)
     def do_POST(self):
-        self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Use GET")
+        parsed = urllib.parse.urlparse(self.path)
+        
+        # Parse body
+        data = {}
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > 0:
+                body = self.rfile.read(content_length).decode("utf-8")
+                data = json.loads(body)
+        except Exception as e:
+            logger.error("Failed to parse POST body: %s", e)
+
+        if parsed.path == "/api/bot/command":
+            if data.get("action") == "clear":
+                BOT_STATE["command"] = None
+            else:
+                BOT_STATE["command"] = data
+                BOT_STATE["status"] = None  # Reset status when new command is issued
+            self.send_json({"status": "success"})
+
+        elif parsed.path == "/api/bot/status":
+            BOT_STATE["status"] = data
+            self.send_json({"status": "success"})
+
+        elif parsed.path == "/api/notify/discord":
+            period = data.get("period", "")
+            pred_data = data.get("pred_data", {})
+            bet_plan = data.get("bet_plan", {})
+            # Fire in background thread or just synchronously (sync is fine for now)
+            import threading
+            threading.Thread(target=send_sure_shot_alert, args=(period, pred_data, bet_plan)).start()
+            self.send_json({"status": "success"})
+
+        else:
+            self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Endpoint not found or Use GET")
 
     # ─── Handlers ─────────────────────────────────────────────────────────────
 
@@ -214,13 +260,82 @@ class BDGHandler(http.server.BaseHTTPRequestHandler):
             },
         }
 
-    # silence request logging noise
     def log_message(self, fmt, *args):
         logger.debug("HTTP %s", fmt % args)
 
 
+def background_discord_monitor():
+    """Continuously monitors all game modes and sends Sure Shot Discord alerts autonomously."""
+    import time
+    from core.discord_notifier import send_sure_shot_alert
+    
+    logger.info("Starting Background Discord Autobot Monitor for all game modes...")
+    fetcher = DataFetcher()
+    games = ["WinGo_30S", "WinGo_1M", "WinGo_3M", "WinGo_5M"]
+    last_notified: Dict[str, Optional[str]] = {g: None for g in games}
+    
+    # Initialize Predictor once to prevent severe CPU/Disk thrashing on every poll
+    pred_engine = Predictor()
+    
+    while True:
+        try:
+            for game in games:
+                raw = fetcher.fetch_past_draws(game_code=game, page_size=20)
+                draws = fetcher.extract_draws(raw) if raw else []
+                if not draws:
+                    continue
+                
+                # The prediction engine and our parsing expect 'issueNumber'
+                draws = _remap_draws(draws)
+                
+                latest_issue = str(draws[0]['issueNumber'])
+                target_issue = str(int(latest_issue) + 1)
+                
+                # If we've already checked this upcoming period, skip
+                if target_issue == last_notified[game]:
+                    continue
+                    
+                # Predict
+                result = pred_engine.predict_next(draws)
+                
+                top3 = result.get("top3", [])
+                if not top3:
+                    continue
+                    
+                conf = round((top3[0].get("prob", 0)) * 100)
+                
+                # Global SURE SHOT THRESHOLD = 85%
+                if conf >= 85:
+                    pattern_str = result.get("patterns", {}).get("color_patterns", {}).get("pattern_type", "AI Ensemble")
+                    pred_data = {
+                        "number": top3[0].get("number"),
+                        "size": top3[0].get("size"),
+                        "color": top3[0].get("color"),
+                        "confidence": conf,
+                        "pattern": pattern_str
+                    }
+                    bet_plan = {
+                        "type": "number (3 entries)",
+                        "outlay": 30 # example outlay for 10rs base
+                    }
+                    send_sure_shot_alert(game, target_issue, pred_data, bet_plan)
+                
+                # Mark as processed whether we sent a hook or not
+                last_notified[game] = target_issue
+                
+        except Exception as e:
+            logger.error("Discord monitor error: %s", e)
+            
+        time.sleep(3)
+
+
 def run_server():
     """Start the HTTP API server."""
+    # Start the Discord Daemon first
+    import threading
+    discord_thread = threading.Thread(target=background_discord_monitor, daemon=True)
+    discord_thread.start()
+
     with socketserver.TCPServer((HOST, PORT), BDGHandler) as httpd:
         httpd.allow_reuse_address = True
         logger.info("🚀 BDG Model API running at http://%s:%s", HOST, PORT)

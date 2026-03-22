@@ -1,0 +1,82 @@
+On branch main
+Your branch is ahead of 'origin/main' by 1 commit.
+  (use "git push" to publish your local commits)
+
+Changes to be committed:
+  (use "git restore --staged <file>..." to unstage)
+	deleted:    RAILWAY_DEPLOY.md
+	deleted:    RAILWAY_QUICK_START.md
+	modified:   TODO.md
+	new file:   analysis_results.json
+	modified:   bdg_predictor/README.md
+	new file:   bdg_predictor/advanced.html
+	new file:   bdg_predictor/ar_lottery_predictor.html
+	modified:   bdg_predictor/assets/css/styles.css
+	new file:   bdg_predictor/bdg_predictor/data.py
+	new file:   bdg_predictor/bdg_predictor/fetch.py
+	deleted:    bdg_predictor/bdg_types.py
+	deleted:    bdg_predictor/check_env.py
+	modified:   bdg_predictor/config.py
+	deleted:    bdg_predictor/error_logger.py
+	modified:   bdg_predictor/firebase_client.py
+	deleted:    bdg_predictor/health_monitor.py
+	new file:   bdg_predictor/hub.html
+	modified:   bdg_predictor/index.html
+	deleted:    bdg_predictor/install_deps.py
+	modified:   bdg_predictor/main.py
+	deleted:    bdg_predictor/model_api_server.py
+	modified:   bdg_predictor/pattern_detector.py
+	modified:   bdg_predictor/predictor.py
+	modified:   bdg_predictor/probability_engine.py
+	modified:   bdg_predictor/sequence_model.py
+	deleted:    bdg_predictor/start_frontend.py
+	modified:   bdg_predictor/telegram_sender.py
+	deleted:    check_firebase.py
+	deleted:    check_railway_deployment.py
+	deleted:    colab_vscode_workflow.ipynb
+	new file:   core/__init__.py
+	new file:   core/config.py
+	new file:   core/data_fetcher.py
+	new file:   core/pattern_detector.py
+	new file:   core/predictor.py
+	new file:   core/probability_engine.py
+	new file:   core/sequence_model.py
+	deleted:    database.rules.json
+	new file:   model_api_server.py
+	modified:   models/WinGo_30S/history.json
+	deleted:    requirements-railway.txt
+	new file:   requirements.txt
+	new file:   server.py
+	new file:   start_frontend.py
+
+Changes not staged for commit:
+  (use "git add/rm <file>..." to update what will be committed)
+  (use "git restore <file>..." to discard changes in working directory)
+	deleted:    .env.example
+	modified:   TODO.md
+	deleted:    bdg_predictor/STARTUP_GUIDE.md
+	deleted:    bdg_predictor/advanced.html
+	deleted:    bdg_predictor/ar_lottery_predictor.html
+	modified:   bdg_predictor/config.py
+	modified:   bdg_predictor/firebase_client.py
+	deleted:    bdg_predictor/hub.html
+	deleted:    bdg_predictor/index.html
+	modified:   bdg_predictor/main.py
+	modified:   bdg_predictor/predictor.py
+	modified:   bdg_predictor/run.bat
+	deleted:    bdg_predictor/telegram_sender.py
+	modified:   model_api_server.py
+	deleted:    server.py
+	deleted:    start_frontend.py
+
+Untracked files:
+  (use "git add <file>..." to include in what will be committed)
+	bdg_predictor/dashboard.css
+	bdg_predictor/dashboard.html
+	bdg_predictor/model_api_server.py
+	bdg_predictor/start_frontend.py
+	broken_diff.txt
+	diff.txt
+	git_status.txt
+	start_dashboard.bat
+
